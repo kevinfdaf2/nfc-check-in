@@ -1,0 +1,9 @@
+runtime: python39
+
+env_variables:
+  LOCAL_MODE: "False"
+  SPREADSHEET_ID: ""
+
+automatic_scaling:
+  min_instances: 0
+  max_instances: 2
