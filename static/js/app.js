@@ -53,6 +53,55 @@ console.log('Final device fingerprint:', deviceFingerprint);
 // Get location from URL parameter
 const urlParams = new URLSearchParams(window.location.search);
 const currentLocation = urlParams.get('location') || 'Unknown Location';
+let userGPSCoords = null;
+let validLocations = [];
+
+// Fetch valid locations from backend
+async function fetchValidLocations() {
+    try {
+        const response = await fetch('/api/locations');
+        const data = await response.json();
+        if (data.success) {
+            validLocations = data.locations;
+            console.log('Valid locations:', validLocations);
+            return validLocations;
+        }
+    } catch (error) {
+        console.error('Error fetching locations:', error);
+    }
+    return [];
+}
+
+// Request GPS location permission
+function requestGPSLocation() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject('Geolocation not supported by browser');
+            return;
+        }
+        
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                userGPSCoords = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy
+                };
+                console.log('GPS location obtained:', userGPSCoords);
+                resolve(userGPSCoords);
+            },
+            (error) => {
+                console.error('GPS error:', error);
+                reject(`GPS error: ${error.message}`);
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
+    });
+}
 
 // Show device info
 document.getElementById('deviceInfo').innerHTML = `
@@ -72,7 +121,56 @@ async function autoCheckIn() {
     try {
         console.log('Starting auto check-in...');
         
-        const controller = new AbortController();
+        // Fetch valid locations first
+        await fetchValidLocations();
+        
+        // Check if location is provided
+        if (!currentLocation || currentLocation === 'Unknown Location') {
+            document.getElementById('autoCheckin').style.display = 'none';
+            showStatus('⚠️ Location required! Please scan QR code with location parameter', 'error');
+            return;
+        }
+        
+        // Validate location is registered
+        if (!validLocations.includes(currentLocation)) {
+            document.getElementById('autoCheckin').style.display = 'none';
+            showStatus(`🚫 Invalid location "${currentLocation}". Location not registered in system.`, 'error');
+            return;
+        }
+                // Request GPS permission and verify location
+        document.getElementById('autoCheckin').innerHTML = '<div class="loading">📍 Getting your location...</div>';
+        
+        try {
+            await requestGPSLocation();
+            
+            // Verify location with backend
+            const verifyResponse = await fetch('/api/verify-location', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    latitude: userGPSCoords.latitude,
+                    longitude: userGPSCoords.longitude,
+                    location: currentLocation
+                })
+            });
+            
+            const verifyData = await verifyResponse.json();
+            
+            if (!verifyData.verified) {
+                document.getElementById('autoCheckin').style.display = 'none';
+                showStatus('🚫 ' + verifyData.message, 'error');
+                return;
+            }
+            
+            console.log('Location verified:', verifyData.message);
+            document.getElementById('autoCheckin').innerHTML = '<div class="loading">🔄 Checking in...</div>';
+            
+        } catch (gpsError) {
+            document.getElementById('autoCheckin').style.display = 'none';
+            showStatus('📍 GPS location required! Please enable location services.', 'error');
+            return;
+        }
+                const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
         const response = await fetch('/api/device/' + deviceFingerprint, {
@@ -109,12 +207,19 @@ async function performCheckIn(name) {
     try {
         console.log('Performing check-in for:', name);
         
+        if (!userGPSCoords) {
+            showStatus('GPS location required', 'error');
+            return;
+        }
+        
         const data = {
             device_id: deviceFingerprint,
             name: name,
             event: 'checkin',
             location: currentLocation,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            latitude: userGPSCoords.latitude,
+            longitude: userGPSCoords.longitude
         };
         
         console.log('Sending check-in data:', data);
@@ -173,8 +278,41 @@ async function registerAndCheckin() {
     }
     
     document.getElementById('registerBtn').disabled = true;
-    document.getElementById('registerBtn').innerHTML = 'Registering...';
+    document.getElementById('registerBtn').innerHTML = 'Getting location...';
     
+    // Request GPS location if not already obtained
+    if (!userGPSCoords) {
+        try {
+            await requestGPSLocation();
+            
+            // Verify location
+            const verifyResponse = await fetch('/api/verify-location', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    latitude: userGPSCoords.latitude,
+                    longitude: userGPSCoords.longitude,
+                    location: currentLocation
+                })
+            });
+            
+            const verifyData = await verifyResponse.json();
+            
+            if (!verifyData.verified) {
+                showStatus('🚫 ' + verifyData.message, 'error');
+                document.getElementById('registerBtn').disabled = false;
+                document.getElementById('registerBtn').innerHTML = 'Register & Check In';
+                return;
+            }
+        } catch (gpsError) {
+            showStatus('📍 GPS location required! Please enable location services.', 'error');
+            document.getElementById('registerBtn').disabled = false;
+            document.getElementById('registerBtn').innerHTML = 'Register & Check In';
+            return;
+        }
+    }
+    
+    document.getElementById('registerBtn').innerHTML = 'Registering...';
     await performCheckIn(name);
     
     document.getElementById('nameGroup').style.display = 'none';
