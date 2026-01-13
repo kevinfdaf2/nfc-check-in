@@ -5,8 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NFC Check-In System</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sneeze-the-dragon.css') }}">
 </head>
 <body>
+    <!-- Dragon Game World -->
+    <div id="world"></div>
+    <div id="instructions">Play with the dragon while checking in!<br/><span class="lightInstructions">- Press and hold to charge, release to sneeze -</span></div>
+    <div id="power">00</div>
+    
+    <!-- Welcome Message Overlay (outside container) -->
+    <div id="welcomeMessage" style="display: none;"></div>
+    
+    <!-- Check-in Interface Overlay -->
     <div class="container">
         <div class="logo">📱</div>
         <h1>NFC Check-In</h1>
@@ -43,6 +53,21 @@
         <div id="deviceInfo" class="device-info hidden"></div>
     </div>
 
+    <!-- Three.js and Animation Libraries - Load synchronously -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/84/three.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.rawgit.com/mrdoob/three.js/r84/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/1.20.3/TweenMax.min.js" crossorigin="anonymous"></script>
+    
+    <script>
+        console.log('THREE loaded?', typeof THREE !== 'undefined');
+        console.log('TweenMax loaded?', typeof TweenMax !== 'undefined');
+        console.log('OrbitControls loaded?', typeof THREE.OrbitControls !== 'undefined');
+    </script>
+    
+    <!-- Dragon Game - Load after all dependencies -->
+    <script src="{{ url_for('static', filename='js/sneeze-the-dragon.js') }}"></script>
+    
+    <!-- Check-in Logic -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

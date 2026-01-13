@@ -243,14 +243,8 @@ async function performCheckIn(name) {
         
         if (result.success) {
             document.getElementById('autoCheckin').innerHTML = `
-                <div class="auto-success">
-                    ✅ Welcome ${name}!<br>
-                    Checked in at ${currentLocation.toUpperCase()}<br>
-                    ${new Date().toLocaleTimeString()}<br><br>
-                    <button class="btn" style="background: #6c757d; color: white; padding: 8px 16px; margin-top: 10px;" 
-                            onclick="showNameUpdate('${name}')">
-                        📝 Update Name
-                    </button>
+                <div class="loading">
+                    ✅ Checked in at ${currentLocation.toUpperCase()}<br>
                 </div>
             `;
         } else {
@@ -388,14 +382,9 @@ async function updateName() {
             document.getElementById('passphrase').value = '';
             
             document.getElementById('autoCheckin').innerHTML = `
-                <div class="auto-success">
-                    ✅ Welcome ${newName}! (Name Updated)<br>
-                    Checked in at ${currentLocation.toUpperCase()}<br>
-                    ${new Date().toLocaleTimeString()}<br><br>
-                    <button class="btn" style="background: #6c757d; color: white; padding: 8px 16px; margin-top: 10px;" 
-                            onclick="showNameUpdate('${newName}')">
-                        📝 Update Name
-                    </button>
+                <div class="loading">
+                    ✅ Welcome ${newName}!<br>
+                    ${currentLocation.toUpperCase()}
                 </div>
             `;
             document.getElementById('autoCheckin').style.display = 'block';
