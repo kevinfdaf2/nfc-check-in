@@ -141,8 +141,13 @@ def get_google_credentials():
     else:
         CREDENTIALS_FILE_TO_USE = CREDENTIALS_FILE
     
-    # Load existing token
-    if os.path.exists(TOKEN_FILE):
+    # Load existing token from environment variable (for cloud) or file (for local)
+    if os.environ.get('GOOGLE_TOKEN_JSON'):
+        # Cloud deployment - load from environment variable
+        token_data = json.loads(os.environ.get('GOOGLE_TOKEN_JSON'))
+        creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+    elif os.path.exists(TOKEN_FILE):
+        # Local development - load from file
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     
     # If there are no (valid) credentials available, let the user log in.
