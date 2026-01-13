@@ -9,10 +9,21 @@ body {
     background: transparent;
     min-height: 100vh;
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
     overflow: hidden;
-    padding-top: 20px;
+    padding: 20px;
+}
+
+.title-container {
+    text-align: center;
+    max-width: 380px;
+    width: auto;
+    position: relative;
+    z-index: 100;
+    pointer-events: auto;
+    margin-top: 50px;
 }
 
 .container {
@@ -32,12 +43,16 @@ body {
 
 @media (max-width: 768px) {
     body {
-        padding-top: 10px;
+        padding: 10px;
     }
     
     .container {
         max-width: 95%;
         padding: 15px 20px;
+    }
+    
+    .title-container {
+        max-width: 95%;
     }
 }
 .logo {

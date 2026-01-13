@@ -16,12 +16,15 @@
     <!-- Welcome Message Overlay (outside container) -->
     <div id="welcomeMessage" style="display: none;"></div>
     
-    <!-- Check-in Interface Overlay -->
-    <div class="container">
+    <!-- Title Container (top) -->
+    <div class="title-container">
         <div class="logo">📱</div>
         <h1>NFC Check-In</h1>
         <p class="subtitle">{{ location|upper }}</p>
-        
+    </div>
+    
+    <!-- Check-in Interface Container (below title) -->
+    <div class="container">
         <div class="form-group" id="nameGroup" style="display: none;">
             <label for="name">Your Name (First time registration)</label>
             <input type="text" id="name" placeholder="Enter your name" autocomplete="name">

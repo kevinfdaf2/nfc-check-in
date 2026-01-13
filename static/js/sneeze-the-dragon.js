@@ -67,7 +67,7 @@ function init() {
     farPlane);
   camera.position.x = -300;
   camera.position.z = 300;
-  camera.position.y = -5;
+  camera.position.y = 50;
   
   renderer = new THREE.WebGLRenderer({
     alpha: true,
@@ -788,8 +788,8 @@ function createFloor() {
 
 function createDragon() {
   dragon = new Dragon();
-  dragon.threegroup.position.y = -80;
-  dragon.threegroup.scale.set(0.8, 0.8, 0.8);
+  dragon.threegroup.position.y = 0;
+  dragon.threegroup.scale.set(0.7, 0.7, 0.7);
   scene.add(dragon.threegroup);
 }
 

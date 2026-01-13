@@ -12,7 +12,7 @@
 #instructions{
   position: fixed;
   width: 100%;
-  top: calc(50% + 100px);
+  top: 50%;
   margin: auto;
   margin-top: 120px;
   font-family: 'Open Sans', sans-serif;
@@ -51,7 +51,7 @@
 #power {
   position: fixed;
   width: 100%;
-  top: calc(50% + 100px);
+  top: 50%;
   margin: auto;
   margin-top: -220px;
   font-family: 'Open Sans', sans-serif;
