@@ -13,7 +13,7 @@ body {
     align-items: center;
     justify-content: space-between;
     overflow: hidden;
-    padding: 20px;
+    padding: 20px 20px 150px 20px;
 }
 
 .title-container {
@@ -23,7 +23,7 @@ body {
     position: relative;
     z-index: 100;
     pointer-events: auto;
-    margin-top: 50px;
+    margin-top: 10px;
 }
 
 .container {
@@ -39,6 +39,7 @@ body {
     z-index: 100;
     pointer-events: auto;
     border: 2px solid rgba(253, 222, 140, 0.3);
+    margin-bottom: 150px;
 }
 
 @media (max-width: 768px) {
