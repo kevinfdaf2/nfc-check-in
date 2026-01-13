@@ -21,6 +21,60 @@ CREDENTIALS_FILE = 'credentials.json'
 TOKEN_FILE     = 'token.json'
 SPREADSHEET_ID = '1un4pQ3a_zjN6SdH80ikVEAqr1nDS5BnGw7-sRal64sY'
 
+def get_allowed_locations():
+    """Get allowed check-in locations from Google Sheets Location tab"""
+    creds = get_google_credentials()
+    if not creds:
+        return {}
+        
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Read from 'Location' sheet
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Location!A:D'
+        ).execute()
+        
+        values = result.get('values', [])
+        locations = {}
+        
+        # Parse locations (skip header row)
+        for row in values[1:]:
+            if len(row) >= 4:
+                name = row[0]
+                try:
+                    lat = float(row[1])
+                    lng = float(row[2])
+                    radius = float(row[3])
+                    locations[name] = {'lat': lat, 'lng': lng, 'radius': radius}
+                except (ValueError, IndexError) as e:
+                    print(f"Invalid location data for {name}: {e}")
+                    continue
+        
+        print(f"✅ Loaded {len(locations)} locations from sheet")
+        return locations
+        
+    except Exception as e:
+        print(f"Error reading locations from sheet: {e}")
+        return {}
+
+def calculate_distance(lat1, lng1, lat2, lng2):
+    """Calculate distance between two GPS coordinates in meters using Haversine formula"""
+    from math import radians, sin, cos, sqrt, atan2
+    
+    R = 6371000  # Earth's radius in meters
+    
+    lat1_rad = radians(lat1)
+    lat2_rad = radians(lat2)
+    delta_lat = radians(lat2 - lat1)
+    delta_lng = radians(lng2 - lng1)
+    
+    a = sin(delta_lat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(delta_lng / 2) ** 2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    
+    return R * c
+
 def get_device_from_sheets(device_id):
     """Get device info from Google Sheets Users tab"""
     creds = get_google_credentials()
@@ -223,7 +277,7 @@ def append_to_sheet(data):
             data['device_id'],
             data['name'],
             data['event'],
-            data.get('location', 'Unknown Location')
+            data['location']
         ]]
         
         body = {'values': values}
@@ -247,20 +301,89 @@ def index():
     location = request.args.get('location', 'Unknown Location')
     return render_template('index.html', location=location)
 
+@app.route('/api/locations')
+def api_locations():
+    """Get list of valid location names"""
+    try:
+        allowed_locations = get_allowed_locations()
+        return jsonify({
+            'success': True,
+            'locations': list(allowed_locations.keys())
+        })
+    except Exception as e:
+        print(f"Error getting locations: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/verify-location', methods=['POST'])
+def api_verify_location():
+    """Verify if user's GPS coordinates are within allowed location radius"""
+    try:
+        data = request.get_json()
+        user_lat = data.get('latitude')
+        user_lng = data.get('longitude')
+        location_name = data.get('location')
+        
+        if not all([user_lat, user_lng, location_name]):
+            return jsonify({'success': False, 'error': 'Missing GPS coordinates or location'}), 400
+        
+        # Get allowed locations from Google Sheets
+        allowed_locations = get_allowed_locations()
+        
+        # Check if location exists
+        if location_name not in allowed_locations:
+            return jsonify({'success': False, 'error': f'Location "{location_name}" not configured in Location sheet'}), 400
+        
+        allowed = allowed_locations[location_name]
+        distance = calculate_distance(user_lat, user_lng, allowed['lat'], allowed['lng'])
+        
+        if distance <= allowed['radius']:
+            return jsonify({
+                'success': True,
+                'verified': True,
+                'distance': round(distance, 1),
+                'message': f'Location verified - you are {round(distance, 1)}m from {location_name}'
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'verified': False,
+                'distance': round(distance, 1),
+                'message': f'Too far from {location_name} - you are {round(distance, 1)}m away (max {allowed["radius"]}m)'
+            })
+            
+    except Exception as e:
+        print(f"Error verifying location: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/checkin', methods=['POST'])
 def api_checkin():
     try:
         data = request.get_json()
         
         # Validate required fields
-        required_fields = ['device_id', 'name', 'event', 'timestamp']
+        required_fields = ['device_id', 'name', 'event', 'timestamp', 'latitude', 'longitude']
         for field in required_fields:
             if field not in data:
                 return jsonify({'success': False, 'error': f'Missing field: {field}'}), 400
         
-        # Add location if not present
-        if 'location' not in data:
-            data['location'] = 'Unknown Location'
+        # Validate location - reject if empty or 'Unknown Location'
+        location = data.get('location', '').strip()
+        if not location or location == 'Unknown Location':
+            return jsonify({'success': False, 'error': 'Location is required for check-in'}), 400
+        
+        # Verify GPS location is within allowed radius
+        allowed_locations = get_allowed_locations()
+        if location in allowed_locations:
+            allowed = allowed_locations[location]
+            distance = calculate_distance(data['latitude'], data['longitude'], allowed['lat'], allowed['lng'])
+            
+            if distance > allowed['radius']:
+                return jsonify({
+                    'success': False,
+                    'error': f'You are too far from {location} ({round(distance, 1)}m away, max {allowed["radius"]}m allowed)'
+                }), 403
+        
+        data['location'] = location
             
         # Register device if not already registered
         device_info = get_device_from_sheets(data['device_id'])
