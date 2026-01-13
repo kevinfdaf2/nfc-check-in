@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, render_template, request, jsonify
 import hashlib
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -9,47 +9,137 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+# Allow OAuth over HTTP for localhost development
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
 
 # Configuration
-LOCAL_MODE = os.environ.get('LOCAL_MODE', 'True').lower() == 'true'
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/calendar']
+SCOPES         = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/calendar']
 CREDENTIALS_FILE = 'credentials.json'
-TOKEN_FILE = 'token.json'
-DATA_FILE = 'checkin_data.json'
-DEVICES_FILE = 'devices.json'
-SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID')
+TOKEN_FILE     = 'token.json'
+SPREADSHEET_ID = '1un4pQ3a_zjN6SdH80ikVEAqr1nDS5BnGw7-sRal64sY'
 
-def load_local_data():
-    """Load data from local JSON files"""
+def get_device_from_sheets(device_id):
+    """Get device info from Google Sheets Users tab"""
+    creds = get_google_credentials()
+    if not creds:
+        return None
+        
     try:
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Read from 'Users' sheet
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Users!A:E'
+        ).execute()
+        
+        values = result.get('values', [])
+        
+        # Find device by ID (Device ID is in column A, User Name in column B)
+        for row in values[1:]:  # Skip header
+            if len(row) > 0 and row[0] == device_id:
+                return {
+                    'name': row[1] if len(row) > 1 else '',
+                    'registered_at': row[2] if len(row) > 2 else '',
+                    'last_checkin': row[3] if len(row) > 3 else '',
+                    'checkin_count': int(row[4]) if len(row) > 4 and row[4].isdigit() else 0
+                }
+        return None
+        
+    except Exception as e:
+        print(f"Error reading devices from Users sheet: {e}")
+        return None
 
-def save_local_data(data):
-    """Save data to local JSON file"""
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
-
-def load_devices():
-    """Load device data from local JSON file"""
+def save_device_to_sheets(device_id, device_data):
+    """Save device info to Google Sheets Users tab"""
+    creds = get_google_credentials()
+    if not creds:
+        print(f"📊 Device data would be saved locally: {device_data['name']}")
+        return True
+        
     try:
-        with open(DEVICES_FILE, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-def save_devices(devices):
-    """Save device data to local JSON file"""
-    with open(DEVICES_FILE, 'w') as f:
-        json.dump(devices, f, indent=2)
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Use existing Users sheet - no need to create
+        # Check if device already exists
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Users!A:E'
+        ).execute()
+        
+        values = result.get('values', [])
+        device_row = None
+        
+        # Find existing device
+        for i, row in enumerate(values[1:], start=2):  # Skip header, start from row 2
+            if len(row) > 0 and row[0] == device_id:
+                device_row = i
+                break
+        
+        device_values = [
+            device_id,
+            device_data['name'],
+            device_data.get('registered_at', ''),
+            device_data.get('last_checkin', ''),
+            str(device_data.get('checkin_count', 0))
+        ]
+        
+        if device_row:
+            # Update existing device
+            service.spreadsheets().values().update(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f'Users!A{device_row}:E{device_row}',
+                valueInputOption='RAW',
+                body={'values': [device_values]}
+            ).execute()
+        else:
+            # Add new device
+            service.spreadsheets().values().append(
+                spreadsheetId=SPREADSHEET_ID,
+                range='Users!A:E',
+                valueInputOption='RAW',
+                insertDataOption='INSERT_ROWS',
+                body={'values': [device_values]}
+            ).execute()
+        
+        print(f"✅ Device data saved to Users sheet: {device_data['name']} - {device_id}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error saving device to Users sheet: {e}")
+        return False
 
 def get_google_credentials():
-    """Get Google API credentials"""
+    """Get Google API credentials using OAuth or environment variables"""
     creds = None
+    
+    # For cloud deployment, create credentials from environment variables
+    if os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
+        # Create credentials.json content from environment variables
+        credentials_content = {
+            "installed": {
+                "client_id": os.environ.get('GOOGLE_CLIENT_ID'),
+                "project_id": os.environ.get('GOOGLE_PROJECT_ID', 'nfc-check-in'),
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": os.environ.get('GOOGLE_CLIENT_SECRET'),
+                "redirect_uris": ["http://localhost"]
+            }
+        }
+        
+        # Save to temporary file for this session
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(credentials_content, f)
+            temp_credentials_file = f.name
+        
+        CREDENTIALS_FILE_TO_USE = temp_credentials_file
+    else:
+        CREDENTIALS_FILE_TO_USE = CREDENTIALS_FILE
     
     # Load existing token
     if os.path.exists(TOKEN_FILE):
@@ -60,14 +150,24 @@ def get_google_credentials():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = Flow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-            flow.redirect_uri = 'http://localhost:5002/oauth2callback'
-            
-            # Generate authorization URL
-            auth_url, _ = flow.authorization_url(prompt='consent')
-            
-            # For now, return None to indicate auth needed
-            return None
+            if os.path.exists(CREDENTIALS_FILE_TO_USE):
+                flow = Flow.from_client_secrets_file(CREDENTIALS_FILE_TO_USE, SCOPES)
+                # Use environment variable for redirect URI in cloud, localhost for local
+                if os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+                    # Cloud deployment
+                    domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+                    flow.redirect_uri = f'https://{domain}/oauth2callback'
+                else:
+                    # Local development
+                    flow.redirect_uri = 'http://localhost:5002/oauth2callback'
+                
+                # Generate authorization URL
+                auth_url, _ = flow.authorization_url(prompt='consent')
+                print(f"🔐 Please visit this URL to authorize the application: {auth_url}")
+                return None
+            else:
+                print("❌ No credentials found - set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables")
+                return None
             
         # Save the credentials for the next run
         with open(TOKEN_FILE, 'w') as token:
@@ -92,10 +192,10 @@ def create_spreadsheet(service, title="NFC Check-in Data"):
     spreadsheet_id = sheet.get('spreadsheetId')
     
     # Add headers
-    headers = [['Timestamp', 'Device ID', 'Name', 'Event']]
+    headers = [['Timestamp', 'Device ID', 'Name', 'Event', 'Location']]
     service.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id,
-        range='A1:D1',
+        range='A1:E1',
         valueInputOption='RAW',
         body={'values': headers}
     ).execute()
@@ -104,346 +204,43 @@ def create_spreadsheet(service, title="NFC Check-in Data"):
 
 def append_to_sheet(data):
     """Append data to Google Sheets"""
-    if LOCAL_MODE:
-        return True
-        
+    # Try to use existing credentials (only for admin/owner)
     creds = get_google_credentials()
     if not creds:
+        print(f"⚠️ No credentials available for {data['name']}: {data['event']} at {data['timestamp']}")
         return False
     
     try:
         service = build('sheets', 'v4', credentials=creds)
         
-        global SPREADSHEET_ID
-        if not SPREADSHEET_ID:
-            SPREADSHEET_ID = create_spreadsheet(service)
-            print(f"Created new spreadsheet: {SPREADSHEET_ID}")
-        
         values = [[
             data['timestamp'],
             data['device_id'],
             data['name'],
-            data['event']
+            data['event'],
+            data.get('location', 'Unknown Location')
         ]]
         
         body = {'values': values}
         result = service.spreadsheets().values().append(
             spreadsheetId=SPREADSHEET_ID,
-            range='A:D',
+            range='A:E',
             valueInputOption='RAW',
             insertDataOption='INSERT_ROWS',
             body=body
         ).execute()
         
+        print(f"✅ Data saved to Google Sheets: {data['name']} - {data['event']}")
         return True
         
     except Exception as e:
-        print(f"Error writing to sheets: {e}")
+        print(f"❌ Error writing to sheets: {e}")
         return False
 
 @app.route('/')
 def index():
-    return render_template_string('''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NFC Check-In System</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .container {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
-            text-align: center;
-            max-width: 400px;
-            width: 90%;
-        }
-        
-        .logo {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
-            border-radius: 50%;
-            margin: 0 auto 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 30px;
-            color: white;
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 24px;
-        }
-        
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-            text-align: left;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #333;
-            font-weight: 500;
-        }
-        
-        input[type="text"] {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #e1e1e1;
-            border-radius: 10px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-        
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .btn-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 30px;
-        }
-        
-        .btn {
-            flex: 1;
-            padding: 15px;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .btn-checkin {
-            background: linear-gradient(45deg, #4CAF50, #45a049);
-            color: white;
-        }
-        
-        .btn-checkout {
-            background: linear-gradient(45deg, #ff6b6b, #ff5252);
-            color: white;
-        }
-        
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-        }
-        
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .status {
-            margin-top: 20px;
-            padding: 15px;
-            border-radius: 10px;
-            font-weight: 500;
-        }
-        
-        .status.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .device-info {
-            margin-top: 20px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-            font-size: 12px;
-            color: #666;
-        }
-        
-        .hidden {
-            display: none;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">📱</div>
-        <h1>NFC Check-In</h1>
-        <p class="subtitle">Tap your device or enter your details</p>
-        
-        <div class="form-group">
-            <label for="name">Your Name</label>
-            <input type="text" id="name" placeholder="Enter your name" autocomplete="name">
-        </div>
-        
-        <div class="btn-group">
-            <button class="btn btn-checkin" onclick="handleAction('checkin')">
-                Check In
-            </button>
-            <button class="btn btn-checkout" onclick="handleAction('checkout')">
-                Check Out
-            </button>
-        </div>
-        
-        <div id="status" class="status hidden"></div>
-        <div id="deviceInfo" class="device-info hidden"></div>
-    </div>
-
-    <script>
-        let deviceFingerprint = null;
-        
-        // Generate device fingerprint
-        function generateDeviceFingerprint() {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            
-            // Draw some text and shapes to create a unique fingerprint
-            ctx.textBaseline = 'top';
-            ctx.font = '14px Arial';
-            ctx.fillText('Device fingerprint test', 2, 2);
-            
-            // Add more entropy
-            const fingerprint = {
-                canvas: canvas.toDataURL(),
-                screen: `${screen.width}x${screen.height}`,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                language: navigator.language,
-                platform: navigator.platform,
-                userAgent: navigator.userAgent.slice(0, 100), // Truncate for privacy
-                colorDepth: screen.colorDepth,
-                pixelRatio: window.devicePixelRatio
-            };
-            
-            // Create hash of fingerprint data
-            const fingerprintString = JSON.stringify(fingerprint);
-            return btoa(fingerprintString).substring(0, 16);
-        }
-        
-        // Initialize device fingerprint
-        deviceFingerprint = generateDeviceFingerprint();
-        
-        // Show device info
-        document.getElementById('deviceInfo').innerHTML = `Device ID: ${deviceFingerprint}`;
-        document.getElementById('deviceInfo').classList.remove('hidden');
-        
-        // Check if device is already registered
-        fetch('/api/device/' + deviceFingerprint)
-            .then(response => response.json())
-            .then(data => {
-                if (data.registered && data.name) {
-                    document.getElementById('name').value = data.name;
-                    document.getElementById('name').setAttribute('readonly', true);
-                    showStatus('Device recognized: ' + data.name, 'success');
-                }
-            })
-            .catch(err => console.log('Device not registered'));
-        
-        function showStatus(message, type) {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-            statusDiv.classList.remove('hidden');
-            
-            setTimeout(() => {
-                statusDiv.classList.add('hidden');
-            }, 3000);
-        }
-        
-        function handleAction(action) {
-            const nameInput = document.getElementById('name');
-            const name = nameInput.value.trim();
-            
-            if (!name) {
-                showStatus('Please enter your name', 'error');
-                nameInput.focus();
-                return;
-            }
-            
-            // Disable buttons during request
-            const buttons = document.querySelectorAll('.btn');
-            buttons.forEach(btn => btn.disabled = true);
-            
-            const data = {
-                device_id: deviceFingerprint,
-                name: name,
-                event: action,
-                timestamp: new Date().toISOString()
-            };
-            
-            fetch('/api/checkin', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(data)
-            })
-            .then(response => response.json())
-            .then(result => {
-                if (result.success) {
-                    showStatus(`${action === 'checkin' ? 'Checked in' : 'Checked out'} successfully!`, 'success');
-                    
-                    // Register device if successful
-                    if (!nameInput.hasAttribute('readonly')) {
-                        nameInput.setAttribute('readonly', true);
-                    }
-                } else {
-                    showStatus(result.error || 'An error occurred', 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showStatus('Network error occurred', 'error');
-            })
-            .finally(() => {
-                // Re-enable buttons
-                buttons.forEach(btn => btn.disabled = false);
-            });
-        }
-        
-        // Handle Enter key in name input
-        document.getElementById('name').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                handleAction('checkin');
-            }
-        });
-    </script>
-</body>
-</html>
-    ''')
+    location = request.args.get('location', 'Unknown Location')
+    return render_template('index.html', location=location)
 
 @app.route('/api/checkin', methods=['POST'])
 def api_checkin():
@@ -456,26 +253,37 @@ def api_checkin():
             if field not in data:
                 return jsonify({'success': False, 'error': f'Missing field: {field}'}), 400
         
+        # Add location if not present
+        if 'location' not in data:
+            data['location'] = 'Unknown Location'
+            
         # Register device if not already registered
-        devices = load_devices()
-        if data['device_id'] not in devices:
-            devices[data['device_id']] = {
-                'name': data['name'],
-                'registered_at': data['timestamp']
-            }
-            save_devices(devices)
+        device_info = get_device_from_sheets(data['device_id'])
         
-        # Save to local storage
-        if LOCAL_MODE:
-            checkin_data = load_local_data()
-            checkin_data.append(data)
-            save_local_data(checkin_data)
+        if not device_info:
+            # New device
+            device_data = {
+                'name': data['name'],
+                'registered_at': data['timestamp'],
+                'last_checkin': data['timestamp'],
+                'checkin_count': 1
+            }
+            save_device_to_sheets(data['device_id'], device_data)
+            print(f"🆔 New device registered: {data['name']} - {data['device_id']}")
+        else:
+            # Update existing device
+            device_data = {
+                'name': device_info['name'],
+                'registered_at': device_info['registered_at'],
+                'last_checkin': data['timestamp'],
+                'checkin_count': device_info.get('checkin_count', 0) + 1
+            }
+            save_device_to_sheets(data['device_id'], device_data)
         
         # Try to save to Google Sheets
-        if not LOCAL_MODE:
-            sheet_success = append_to_sheet(data)
-            if not sheet_success:
-                return jsonify({'success': False, 'error': 'Failed to write to Google Sheets'}), 500
+        sheet_success = append_to_sheet(data)
+        if not sheet_success:
+            return jsonify({'success': False, 'error': 'Failed to save data'}), 500
         
         return jsonify({'success': True, 'message': 'Check-in recorded successfully'})
         
@@ -485,33 +293,97 @@ def api_checkin():
 
 @app.route('/api/device/<device_id>')
 def api_device(device_id):
-    devices = load_devices()
+    device_info = get_device_from_sheets(device_id)
     
-    if device_id in devices:
+    if device_info:
         return jsonify({
             'registered': True,
-            'name': devices[device_id]['name'],
-            'registered_at': devices[device_id]['registered_at']
+            'name': device_info['name'],
+            'registered_at': device_info['registered_at']
         })
     else:
         return jsonify({'registered': False})
 
+@app.route('/api/device/<device_id>/update-name', methods=['POST'])
+def api_update_device_name(device_id):
+    try:
+        data = request.get_json()
+        new_name = data.get('new_name', '').strip()
+        
+        if not new_name:
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+        
+        device_info = get_device_from_sheets(device_id)
+        
+        if not device_info:
+            return jsonify({'success': False, 'error': 'Device not registered'}), 404
+        
+        old_name = device_info['name']
+        
+        # Update device with new name
+        device_data = {
+            'name': new_name,
+            'registered_at': device_info['registered_at'],
+            'last_checkin': device_info.get('last_checkin', ''),
+            'checkin_count': device_info.get('checkin_count', 0),
+            'name_updated_at': datetime.now().isoformat()
+        }
+        
+        save_device_to_sheets(device_id, device_data)
+        
+        print(f"🔄 Device name updated: {device_id} - {old_name} → {new_name}")
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Name updated from {old_name} to {new_name}',
+            'old_name': old_name,
+            'new_name': new_name
+        })
+        
+    except Exception as e:
+        print(f"Error updating device name: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/data')
 def api_data():
-    if LOCAL_MODE:
-        data = load_local_data()
-        return jsonify(data)
-    else:
-        # Could implement Google Sheets reading here
-        return jsonify({'error': 'Google Sheets reading not implemented'})
+    return jsonify({'error': 'Please use Google Sheets directly to view data', 'spreadsheet_id': SPREADSHEET_ID})
 
 @app.route('/oauth2callback')
 def oauth2callback():
     # Handle OAuth callback
     try:
-        flow = Flow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-        flow.redirect_uri = 'http://localhost:5002/oauth2callback'
+        # Determine credentials file to use
+        if os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
+            # Create credentials from environment variables
+            credentials_content = {
+                "installed": {
+                    "client_id": os.environ.get('GOOGLE_CLIENT_ID'),
+                    "project_id": os.environ.get('GOOGLE_PROJECT_ID', 'nfc-check-in'),
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "client_secret": os.environ.get('GOOGLE_CLIENT_SECRET'),
+                    "redirect_uris": ["http://localhost"]
+                }
+            }
+            
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json.dump(credentials_content, f)
+                temp_credentials_file = f.name
+            
+            flow = Flow.from_client_secrets_file(temp_credentials_file, SCOPES)
+        else:
+            flow = Flow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
         
+        # Set redirect URI based on environment
+        if os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+            domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+            flow.redirect_uri = f'https://{domain}/oauth2callback'
+        else:
+            flow.redirect_uri = 'http://localhost:5002/oauth2callback'
+        
+        # Use the current request URL for authorization response
         authorization_response = request.url
         flow.fetch_token(authorization_response=authorization_response)
         
@@ -520,28 +392,73 @@ def oauth2callback():
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
             
-        return '<h1>Authentication successful!</h1><p>You can now close this tab and return to the app.</p>'
+        print("✅ Google credentials saved successfully!")
+        return '''
+        <html>
+        <head><title>Authentication Success</title></head>
+        <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 100px;">
+            <h1>✅ Authentication Successful!</h1>
+            <p>Google Sheets is now connected to your NFC check-in system.</p>
+            <p><strong>You can close this tab and return to your app.</strong></p>
+            <p>Future NFC check-ins will automatically save to your spreadsheet!</p>
+        </body>
+        </html>
+        '''
         
     except Exception as e:
-        return f'<h1>Authentication failed!</h1><p>Error: {e}</p>'
+        print(f"❌ OAuth callback error: {e}")
+        return f'''
+        <html>
+        <head><title>Authentication Failed</title></head>
+        <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 100px;">
+            <h1>❌ Authentication Failed</h1>
+            <p>Error: {e}</p>
+            <p>Please try again or check the server logs.</p>
+        </body>
+        </html>
+        '''
+
+@app.route('/admin')
+def admin():
+    """Admin view - redirects to Google Sheets"""
+    return jsonify({
+        'message': 'Please use Google Sheets directly for admin functionality',
+        'spreadsheet_id': SPREADSHEET_ID,
+        'sheets_url': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}',
+        'users_sheet': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid=1',
+        'checkins_sheet': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid=0'
+    })
+
+@app.route('/user/<name>')
+def user_devices(name):
+    """Get user info - redirects to Google Sheets"""
+    return jsonify({
+        'message': f'Please use Google Sheets to view data for {name}',
+        'spreadsheet_id': SPREADSHEET_ID,
+        'sheets_url': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}'
+    })
 
 @app.route('/health')
 def health():
     return jsonify({
         'status': 'healthy',
-        'mode': 'local' if LOCAL_MODE else 'google',
+        'mode': 'google',
         'timestamp': datetime.now().isoformat()
     })
 
 if __name__ == '__main__':
     print("🚀 NFC Check-In System Starting...")
-    print(f"📊 Mode: {'LOCAL' if LOCAL_MODE else 'GOOGLE SHEETS'}")
-    print("🌐 Server running on http://localhost:5002")
+    print(f"📊 Mode: GOOGLE SHEETS")
     
-    # Create data files if they don't exist
-    if not os.path.exists(DATA_FILE):
-        save_local_data([])
-    if not os.path.exists(DEVICES_FILE):
-        save_devices({})
+    # Get port from environment variable for cloud deployment
+    port = int(os.environ.get('PORT', 5002))
     
-    app.run(host='0.0.0.0', port=5002, debug=True)
+    if os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+        # Cloud deployment
+        print(f"☁️ Cloud deployment detected")
+        print(f"🌐 Server running on port {port}")
+        app.run(host='0.0.0.0', port=port, debug=False)
+    else:
+        # Local development
+        print(f"🌐 Server running on http://localhost:{port}")
+        app.run(host='0.0.0.0', port=port, debug=True)
