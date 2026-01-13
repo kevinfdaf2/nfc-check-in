@@ -10,7 +10,7 @@
     <div class="container">
         <div class="logo">📱</div>
         <h1>NFC Check-In</h1>
-        <p class="subtitle">{{ location }}</p>
+        <p class="subtitle">{{ location|upper }}</p>
         
         <div class="form-group" id="nameGroup" style="display: none;">
             <label for="name">Your Name (First time registration)</label>
@@ -23,6 +23,8 @@
         <div class="form-group" id="updateNameGroup" style="display: none;">
             <label for="newName">Update Your Name</label>
             <input type="text" id="newName" placeholder="Enter new name" autocomplete="name">
+            <label for="passphrase" style="margin-top: 10px;">Passphrase</label>
+            <input type="password" id="passphrase" placeholder="Enter passphrase" autocomplete="off">
             <div style="display: flex; gap: 10px; margin-top: 10px;">
                 <button class="btn btn-checkin" onclick="updateName()" id="updateBtn" style="flex: 1;">
                     ✅ Update

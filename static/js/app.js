@@ -106,7 +106,7 @@ function requestGPSLocation() {
 // Show device info
 document.getElementById('deviceInfo').innerHTML = `
     Device ID: ${deviceFingerprint}<br>
-    Location: ${currentLocation}<br>
+    Location: ${currentLocation.toUpperCase()}<br>
     <small style="color: #999;">
         Device ID is stored in browser and persists across sessions.
     </small>
@@ -131,8 +131,9 @@ async function autoCheckIn() {
             return;
         }
         
-        // Validate location is registered
-        if (!validLocations.includes(currentLocation)) {
+        // Validate location is registered (case-insensitive)
+        const matchedLocation = validLocations.find(loc => loc.toLowerCase() === currentLocation.toLowerCase());
+        if (!matchedLocation) {
             document.getElementById('autoCheckin').style.display = 'none';
             showStatus(`🚫 Invalid location "${currentLocation}". Location not registered in system.`, 'error');
             return;
@@ -244,7 +245,7 @@ async function performCheckIn(name) {
             document.getElementById('autoCheckin').innerHTML = `
                 <div class="auto-success">
                     ✅ Welcome ${name}!<br>
-                    Checked in at ${currentLocation}<br>
+                    Checked in at ${currentLocation.toUpperCase()}<br>
                     ${new Date().toLocaleTimeString()}<br><br>
                     <button class="btn" style="background: #6c757d; color: white; padding: 8px 16px; margin-top: 10px;" 
                             onclick="showNameUpdate('${name}')">
@@ -342,16 +343,25 @@ function showNameUpdate(currentName) {
 function cancelNameUpdate() {
     document.getElementById('updateNameGroup').style.display = 'none';
     document.getElementById('autoCheckin').style.display = 'block';
+    document.getElementById('passphrase').value = '';
 }
 
 // Update name function
 async function updateName() {
     const newNameInput = document.getElementById('newName');
+    const passphraseInput = document.getElementById('passphrase');
     const newName = newNameInput.value.trim();
+    const passphrase = passphraseInput.value.trim();
     
     if (!newName) {
         showStatus('Please enter a name', 'error');
         newNameInput.focus();
+        return;
+    }
+    
+    if (!passphrase) {
+        showStatus('Please enter passphrase', 'error');
+        passphraseInput.focus();
         return;
     }
     
@@ -365,7 +375,8 @@ async function updateName() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                new_name: newName
+                new_name: newName,
+                passphrase: passphrase
             })
         });
         
@@ -374,11 +385,12 @@ async function updateName() {
         if (result.success) {
             showStatus(`Name updated to: ${newName}`, 'success');
             document.getElementById('updateNameGroup').style.display = 'none';
+            document.getElementById('passphrase').value = '';
             
             document.getElementById('autoCheckin').innerHTML = `
                 <div class="auto-success">
                     ✅ Welcome ${newName}! (Name Updated)<br>
-                    Checked in at ${currentLocation}<br>
+                    Checked in at ${currentLocation.toUpperCase()}<br>
                     ${new Date().toLocaleTimeString()}<br><br>
                     <button class="btn" style="background: #6c757d; color: white; padding: 8px 16px; margin-top: 10px;" 
                             onclick="showNameUpdate('${newName}')">

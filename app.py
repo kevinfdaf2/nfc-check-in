@@ -1,25 +1,23 @@
 import os
 import json
 from datetime import datetime
+from collections import Counter
 from flask import Flask, render_template, request, jsonify
-import hashlib
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 # Allow OAuth over HTTP for localhost development
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
 
 # Configuration
-SCOPES         = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/calendar']
+SCOPES           = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/calendar']
 CREDENTIALS_FILE = 'credentials.json'
-TOKEN_FILE     = 'token.json'
-SPREADSHEET_ID = '1un4pQ3a_zjN6SdH80ikVEAqr1nDS5BnGw7-sRal64sY'
+TOKEN_FILE       = 'token.json'
+SPREADSHEET_ID   = '1un4pQ3a_zjN6SdH80ikVEAqr1nDS5BnGw7-sRal64sY'
 
 def get_allowed_locations():
     """Get allowed check-in locations from Google Sheets Location tab"""
@@ -329,11 +327,17 @@ def api_verify_location():
         # Get allowed locations from Google Sheets
         allowed_locations = get_allowed_locations()
         
-        # Check if location exists
-        if location_name not in allowed_locations:
+        # Check if location exists (case-insensitive)
+        matched_location = None
+        for loc_name, loc_data in allowed_locations.items():
+            if loc_name.lower() == location_name.lower():
+                matched_location = loc_name
+                break
+        
+        if not matched_location:
             return jsonify({'success': False, 'error': f'Location "{location_name}" not configured in Location sheet'}), 400
         
-        allowed = allowed_locations[location_name]
+        allowed = allowed_locations[matched_location]
         distance = calculate_distance(user_lat, user_lng, allowed['lat'], allowed['lng'])
         
         if distance <= allowed['radius']:
@@ -371,16 +375,22 @@ def api_checkin():
         if not location or location == 'Unknown Location':
             return jsonify({'success': False, 'error': 'Location is required for check-in'}), 400
         
-        # Verify GPS location is within allowed radius
+        # Verify GPS location is within allowed radius (case-insensitive)
         allowed_locations = get_allowed_locations()
-        if location in allowed_locations:
-            allowed = allowed_locations[location]
+        matched_location = None
+        for loc_name, loc_data in allowed_locations.items():
+            if loc_name.lower() == location.lower():
+                matched_location = loc_name
+                break
+        
+        if matched_location:
+            allowed = allowed_locations[matched_location]
             distance = calculate_distance(data['latitude'], data['longitude'], allowed['lat'], allowed['lng'])
             
             if distance > allowed['radius']:
                 return jsonify({
                     'success': False,
-                    'error': f'You are too far from {location} ({round(distance, 1)}m away, max {allowed["radius"]}m allowed)'
+                    'error': f'You are too far from {matched_location} ({round(distance, 1)}m away, max {allowed["radius"]}m allowed)'
                 }), 403
         
         data['location'] = location
@@ -437,9 +447,13 @@ def api_update_device_name(device_id):
     try:
         data = request.get_json()
         new_name = data.get('new_name', '').strip()
+        passphrase = data.get('passphrase', '').strip()
         
         if not new_name:
             return jsonify({'success': False, 'error': 'Name is required'}), 400
+        
+        if passphrase != 'imsb':
+            return jsonify({'success': False, 'error': 'WHY BABY WHY, you\'re sb'}), 403
         
         device_info = get_device_from_sheets(device_id)
         
@@ -548,14 +562,71 @@ def oauth2callback():
 
 @app.route('/admin')
 def admin():
-    """Admin view - redirects to Google Sheets"""
-    return jsonify({
-        'message': 'Please use Google Sheets directly for admin functionality',
-        'spreadsheet_id': SPREADSHEET_ID,
-        'sheets_url': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}',
-        'users_sheet': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid=1',
-        'checkins_sheet': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid=0'
-    })
+    """Admin dashboard with statistics"""
+    return render_template('admin.html')
+
+@app.route('/api/admin-stats')
+def api_admin_stats():
+    """Get statistics for admin dashboard"""
+    creds = get_google_credentials()
+    if not creds:
+        return jsonify({'error': 'No Google credentials available'}), 403
+    
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Get all check-ins from Check-ins sheet
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Check-ins!A:E'
+        ).execute()
+        
+        values = result.get('values', [])
+        
+        # Skip header row and count locations and devices
+        location_counter = Counter()
+        device_checkins = {}  # device_id -> {count, most_recent_name, timestamp}
+        
+        for row in values[1:]:  # Skip header
+            if len(row) >= 5:
+                timestamp = row[0]  # Column A: Timestamp
+                device_id = row[1]  # Column B: Device ID
+                name = row[2]  # Column C: Name
+                location = row[4].upper()  # Column E: Location (uppercase)
+                
+                location_counter[location] += 1
+                
+                # Track device check-ins with most recent name
+                if device_id not in device_checkins:
+                    device_checkins[device_id] = {'count': 0, 'most_recent_name': name, 'timestamp': timestamp}
+                
+                device_checkins[device_id]['count'] += 1
+                
+                # Update to most recent name based on timestamp
+                if timestamp > device_checkins[device_id]['timestamp']:
+                    device_checkins[device_id]['most_recent_name'] = name
+                    device_checkins[device_id]['timestamp'] = timestamp
+        
+        # Format results as sorted lists
+        location_stats = [
+            {'location': loc, 'visits': count}
+            for loc, count in location_counter.most_common()
+        ]
+        
+        # Sort devices by check-in count and use most recent name
+        user_stats = [
+            {'name': data['most_recent_name'], 'checkins': data['count']}
+            for device_id, data in sorted(device_checkins.items(), key=lambda x: x[1]['count'], reverse=True)
+        ]
+        
+        return jsonify({
+            'location_stats': location_stats,
+            'user_stats': user_stats
+        })
+        
+    except Exception as e:
+        print(f"Error getting admin stats: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/user/<name>')
 def user_devices(name):
