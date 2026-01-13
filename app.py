@@ -301,19 +301,6 @@ def index():
     location = request.args.get('location', 'Unknown Location')
     return render_template('index.html', location=location)
 
-@app.route('/api/locations')
-def api_locations():
-    """Get list of valid location names"""
-    try:
-        allowed_locations = get_allowed_locations()
-        return jsonify({
-            'success': True,
-            'locations': list(allowed_locations.keys())
-        })
-    except Exception as e:
-        print(f"Error getting locations: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
 @app.route('/api/verify-location', methods=['POST'])
 def api_verify_location():
     """Verify if user's GPS coordinates are within allowed location radius"""
