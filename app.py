@@ -1,5 +1,7 @@
 import os
 import json
+import pytz
+import tempfile
 from datetime import datetime
 from collections import Counter
 from flask import Flask, render_template, request, jsonify
@@ -7,6 +9,8 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from math import radians, sin, cos, sqrt, atan2
+from datetime import datetime
 
 # Allow OAuth over HTTP for localhost development
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -59,7 +63,6 @@ def get_allowed_locations():
 
 def calculate_distance(lat1, lng1, lat2, lng2):
     """Calculate distance between two GPS coordinates in meters using Haversine formula"""
-    from math import radians, sin, cos, sqrt, atan2
     
     R = 6371000  # Earth's radius in meters
     
@@ -184,7 +187,6 @@ def get_google_credentials():
         }
         
         # Save to temporary file for this session
-        import tempfile
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(credentials_content, f)
             temp_credentials_file = f.name
@@ -216,7 +218,7 @@ def get_google_credentials():
                     flow.redirect_uri = f'https://{domain}/oauth2callback'
                 else:
                     # Local development
-                    flow.redirect_uri = 'http://localhost:5002/oauth2callback'
+                    flow.redirect_uri = 'http://localhost:5001/oauth2callback'
                 
                 # Generate authorization URL
                 auth_url, _ = flow.authorization_url(prompt='consent')
@@ -292,6 +294,58 @@ def append_to_sheet(data):
         
     except Exception as e:
         print(f"❌ Error writing to sheets: {e}")
+        return False
+
+def check_already_checked_in_today(device_id):
+    """Check if device has already checked in today"""
+    creds = get_google_credentials()
+    if not creds:
+        return False
+
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Get all check-ins
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Check-ins!A:E'
+        ).execute()
+        
+        values = result.get('values', [])
+        if not values or len(values) < 2:  # No data or only header
+            return False
+        
+        # Get today's date in Melbourne timezone
+        melbourne_tz = pytz.timezone('Australia/Melbourne')
+        today = datetime.now(melbourne_tz).date()
+        
+        # Check recent check-ins (reverse order to check most recent first)
+        for row in reversed(values[1:]):  # Skip header
+            if len(row) >= 2:
+                timestamp_str = row[0]
+                row_device_id = row[1]
+                
+                # Check if this is the same device
+                if row_device_id == device_id:
+                    try:
+                        # Parse Melbourne time format: DD/MM/YYYY, HH:MM
+                        checkin_time = datetime.strptime(timestamp_str, '%d/%m/%Y, %H:%M')
+                        checkin_date = checkin_time.date()
+                        
+                        # If check-in is from today, return True
+                        if checkin_date == today:
+                            return True
+                        else:
+                            # If we found an older check-in, no need to keep searching
+                            return False
+                    except Exception as e:
+                        print(f"Error parsing timestamp '{timestamp_str}': {e}")
+                        continue
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error checking previous check-ins: {e}")
         return False
 
 @app.route('/')
@@ -370,11 +424,19 @@ def api_checkin():
             if field not in data:
                 return jsonify({'success': False, 'error': f'Missing field: {field}'}), 400
         
+        # Check if already checked in today
+        if check_already_checked_in_today(data['device_id']):
+            return jsonify({
+                'success': False,
+                'already_checked_in': True,
+                'message': f"✅ Already checked in today!"
+            }), 200
+
         # Validate location - reject if empty or 'Unknown Location'
         location = data.get('location', '').strip()
         if not location or location == 'Unknown Location':
             return jsonify({'success': False, 'error': 'Location is required for check-in'}), 400
-        
+
         # Verify GPS location is within allowed radius (case-insensitive)
         allowed_locations = get_allowed_locations()
         matched_location = None
@@ -382,7 +444,7 @@ def api_checkin():
             if loc_name.lower() == location.lower():
                 matched_location = loc_name
                 break
-        
+
         if matched_location:
             allowed = allowed_locations[matched_location]
             distance = calculate_distance(data['latitude'], data['longitude'], allowed['lat'], allowed['lng'])
@@ -508,8 +570,7 @@ def oauth2callback():
                     "redirect_uris": ["http://localhost"]
                 }
             }
-            
-            import tempfile
+
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 json.dump(credentials_content, f)
                 temp_credentials_file = f.name
@@ -517,23 +578,23 @@ def oauth2callback():
             flow = Flow.from_client_secrets_file(temp_credentials_file, SCOPES)
         else:
             flow = Flow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-        
+
         # Set redirect URI based on environment
         if os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
             domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME')
             flow.redirect_uri = f'https://{domain}/oauth2callback'
         else:
-            flow.redirect_uri = 'http://localhost:5002/oauth2callback'
-        
+            flow.redirect_uri = 'http://localhost:5001/oauth2callback'
+
         # Use the current request URL for authorization response
         authorization_response = request.url
         flow.fetch_token(authorization_response=authorization_response)
-        
+
         # Save credentials
         creds = flow.credentials
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
-            
+
         print("✅ Google credentials saved successfully!")
         return '''
         <html>
@@ -546,7 +607,7 @@ def oauth2callback():
         </body>
         </html>
         '''
-        
+
     except Exception as e:
         print(f"❌ OAuth callback error: {e}")
         return f'''
@@ -606,27 +667,29 @@ def api_admin_stats():
                 if timestamp > device_checkins[device_id]['timestamp']:
                     device_checkins[device_id]['most_recent_name'] = name
                     device_checkins[device_id]['timestamp'] = timestamp
-        
+
         # Format results as sorted lists
         location_stats = [
             {'location': loc, 'visits': count}
             for loc, count in location_counter.most_common()
         ]
-        
+
         # Sort devices by check-in count and use most recent name
         user_stats = [
             {'name': data['most_recent_name'], 'checkins': data['count']}
             for device_id, data in sorted(device_checkins.items(), key=lambda x: x[1]['count'], reverse=True)
         ]
-        
+
         return jsonify({
             'location_stats': location_stats,
             'user_stats': user_stats
         })
-        
+
     except Exception as e:
         print(f"Error getting admin stats: {e}")
         return jsonify({'error': str(e)}), 500
+
+
 
 @app.route('/user/<name>')
 def user_devices(name):
@@ -636,6 +699,8 @@ def user_devices(name):
         'spreadsheet_id': SPREADSHEET_ID,
         'sheets_url': f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}'
     })
+
+
 
 @app.route('/health')
 def health():
@@ -648,10 +713,10 @@ def health():
 if __name__ == '__main__':
     print("🚀 NFC Check-In System Starting...")
     print(f"📊 Mode: GOOGLE SHEETS")
-    
+
     # Get port from environment variable for cloud deployment
-    port = int(os.environ.get('PORT', 5002))
-    
+    port = int(os.environ.get('PORT', 5001))
+
     if os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
         # Cloud deployment
         print(f"☁️ Cloud deployment detected")
@@ -660,4 +725,6 @@ if __name__ == '__main__':
     else:
         # Local development
         print(f"🌐 Server running on http://localhost:{port}")
+        print(f"    Testing link:         http://localhost:{port}/?location=kevin")
+        print(f"    Testing link:         http://192.168.31.172:{port}/?location=kevin")
         app.run(host='0.0.0.0', port=port, debug=True)

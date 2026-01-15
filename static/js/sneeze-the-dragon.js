@@ -111,7 +111,7 @@ function onWindowResize() {
 function handleMouseUp(event) {
   if (sneezeTimeout) clearTimeout(sneezeTimeout);
   sneezingRate += (maxSneezingRate - sneezingRate) / 10;
-  powerField.innerHTML = parseInt(sneezingRate*100/maxSneezingRate);
+  powerField.innerHTML = "";
   dragon.prepareToSneeze(sneezingRate);
   sneezeTimeout = setTimeout(sneeze, sneezeDelay*globalSpeedRate);
   dragon.isSneezing = true;
@@ -120,13 +120,13 @@ function handleMouseUp(event) {
 function sneeze() {
   dragon.sneeze(sneezingRate);
   sneezingRate = 0;
-  powerField.innerHTML = "00";
+  powerField.innerHTML = "";
 }
 
 function handleTouchEnd(event) {
   if (sneezeTimeout) clearTimeout(sneezeTimeout);
   sneezingRate += (maxSneezingRate - sneezingRate) / 10;
-  powerField.innerHTML = parseInt(sneezingRate*100/maxSneezingRate);
+  powerField.innerHTML = "";
   dragon.prepareToSneeze(sneezingRate);
   sneezeTimeout = setTimeout(sneeze, sneezeDelay*globalSpeedRate);
   dragon.isSneezing = true;
@@ -789,7 +789,7 @@ function createFloor() {
 function createDragon() {
   dragon = new Dragon();
   dragon.threegroup.position.y = 0;
-  dragon.threegroup.scale.set(0.7, 0.7, 0.7);
+  dragon.threegroup.scale.set(0.8, 0.8, 0.8);
   scene.add(dragon.threegroup);
 }
 

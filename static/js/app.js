@@ -1,24 +1,76 @@
 console.log('Script loaded successfully');
 let deviceFingerprint = null;
 
-// Generate device fingerprint (more consistent)
+// Generate device fingerprint (more consistent and unique)
 function generateDeviceFingerprint() {
     console.log('Generating new device fingerprint...');
+
+    // Canvas fingerprinting for uniqueness
+    let canvasFingerprint = '';
+    try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 200;
+        canvas.height = 50;
+        ctx.textBaseline = 'top';
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#f60';
+        ctx.fillRect(125, 1, 62, 20);
+        ctx.fillStyle = '#069';
+        ctx.fillText('Device ID', 2, 15);
+        canvasFingerprint = canvas.toDataURL().substring(0, 50);
+    } catch (e) {
+        canvasFingerprint = 'canvas-error';
+    }
+
+    // WebGL fingerprinting
+    let webglFingerprint = '';
+    try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (gl) {
+            const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+            if (debugInfo) {
+                webglFingerprint = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+            }
+        }
+    } catch (e) {
+        webglFingerprint = 'webgl-error';
+    }
+
     // Use more stable device characteristics
     const fingerprint = {
         screen: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+        availScreen: `${screen.availWidth}x${screen.availHeight}`,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timezoneOffset: new Date().getTimezoneOffset(),
         language: navigator.language,
+        languages: navigator.languages ? navigator.languages.join(',') : '',
         platform: navigator.platform,
         userAgent: navigator.userAgent.substring(0, 200),
         pixelRatio: window.devicePixelRatio,
         cookieEnabled: navigator.cookieEnabled,
-        onLine: navigator.onLine,
-        randomSeed: Math.random().toString(36).substring(2, 15)
+        doNotTrack: navigator.doNotTrack,
+        hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+        deviceMemory: navigator.deviceMemory || 'unknown',
+        maxTouchPoints: navigator.maxTouchPoints || 0,
+        canvas: canvasFingerprint,
+        webgl: webglFingerprint,
+        vendor: navigator.vendor || '',
+        product: navigator.product || '',
+        productSub: navigator.productSub || '',
+        timestamp: Date.now() // Add current timestamp for extra uniqueness on first generation
     };
     
     const fingerprintString = JSON.stringify(fingerprint);
-    return btoa(fingerprintString).substring(0, 20);
+    // Create a hash-like ID from the fingerprint
+    let hash = 0;
+    for (let i = 0; i < fingerprintString.length; i++) {
+        const char = fingerprintString.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return 'dev' + Math.abs(hash).toString(36) + btoa(fingerprintString).substring(0, 15);
 }
 
 // Get or create persistent device fingerprint
@@ -106,7 +158,6 @@ function requestGPSLocation() {
 // Show device info
 document.getElementById('deviceInfo').innerHTML = `
     Device ID: ${deviceFingerprint}<br>
-    Location: ${currentLocation.toUpperCase()}<br>
     <small style="color: #999;">
         Device ID is stored in browser and persists across sessions.
     </small>
@@ -168,7 +219,7 @@ async function autoCheckIn() {
             
         } catch (gpsError) {
             document.getElementById('autoCheckin').style.display = 'none';
-            showStatus('📍 GPS location required! Please enable location services.', 'error');
+            showStatus('📍 Please enable location services.', 'error');
             return;
         }
                 const controller = new AbortController();
@@ -189,7 +240,7 @@ async function autoCheckIn() {
             console.log('New device detected');
             document.getElementById('autoCheckin').style.display = 'none';
             document.getElementById('nameGroup').style.display = 'block';
-            showStatus('New device detected - please register', 'error');
+            // showStatus('New device detected - please register', 'error');
         }
     } catch (err) {
         console.error('Error in auto check-in:', err);
@@ -209,16 +260,26 @@ async function performCheckIn(name) {
         console.log('Performing check-in for:', name);
         
         if (!userGPSCoords) {
-            showStatus('GPS location required', 'error');
-            return;
+            throw new Error('GPS location required');
         }
+        
+        // Format timestamp in Melbourne time (to minutes)
+        const melbourneTime = new Date().toLocaleString('en-AU', {
+            timeZone: 'Australia/Melbourne',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
         
         const data = {
             device_id: deviceFingerprint,
             name: name,
             event: 'checkin',
             location: currentLocation,
-            timestamp: new Date().toISOString(),
+            timestamp: melbourneTime,
             latitude: userGPSCoords.latitude,
             longitude: userGPSCoords.longitude
         };
@@ -244,21 +305,28 @@ async function performCheckIn(name) {
         if (result.success) {
             document.getElementById('autoCheckin').innerHTML = `
                 <div class="loading">
-                    ✅ Checked in at ${currentLocation.toUpperCase()}<br>
+                    🍻 ${name}, 已签到.<br>
                 </div>
             `;
+            document.getElementById('autoCheckin').style.display = 'block';
+        } else if (result.already_checked_in) {
+            // Already checked in today
+            document.getElementById('autoCheckin').innerHTML = `
+                <div class="loading">
+                    🫵🏽 ${name}, 明天再来!<br>
+                </div>
+            `;
+            document.getElementById('autoCheckin').style.display = 'block';
         } else {
-            showStatus('Check-in failed: ' + (result.error || 'Unknown error'), 'error');
-            document.getElementById('autoCheckin').style.display = 'none';
+            throw new Error(result.error || 'Unknown error');
         }
     } catch (error) {
         console.error('Check-in error:', error);
         if (error.name === 'AbortError') {
-            showStatus('Check-in timeout - please try again', 'error');
+            throw new Error('Check-in timeout - please try again');
         } else {
-            showStatus('Network error during check-in', 'error');
+            throw error;
         }
-        document.getElementById('autoCheckin').style.display = 'none';
     }
 }
 
@@ -271,10 +339,10 @@ async function registerAndCheckin() {
         nameInput.focus();
         return;
     }
-    
+
     document.getElementById('registerBtn').disabled = true;
-    document.getElementById('registerBtn').innerHTML = 'Getting location...';
-    
+    document.getElementById('registerBtn').innerHTML = '📍';
+
     // Request GPS location if not already obtained
     if (!userGPSCoords) {
         try {
@@ -290,27 +358,39 @@ async function registerAndCheckin() {
                     location: currentLocation
                 })
             });
-            
+
             const verifyData = await verifyResponse.json();
-            
+
             if (!verifyData.verified) {
                 showStatus('🚫 ' + verifyData.message, 'error');
                 document.getElementById('registerBtn').disabled = false;
-                document.getElementById('registerBtn').innerHTML = 'Register & Check In';
+                document.getElementById('registerBtn').innerHTML = '✅';
                 return;
             }
         } catch (gpsError) {
-            showStatus('📍 GPS location required! Please enable location services.', 'error');
+            console.error('GPS error during registration:', gpsError);
+            showStatus('📍 Please enable location services.', 'error');
             document.getElementById('registerBtn').disabled = false;
-            document.getElementById('registerBtn').innerHTML = 'Register & Check In';
+            document.getElementById('registerBtn').innerHTML = '✅';
             return;
         }
     }
-    
-    document.getElementById('registerBtn').innerHTML = 'Registering...';
-    await performCheckIn(name);
-    
-    document.getElementById('nameGroup').style.display = 'none';
+
+    document.getElementById('registerBtn').innerHTML = '⏳';
+
+    try {
+        // Perform check-in
+        await performCheckIn(name);
+
+        // Hide registration form and show success
+        document.getElementById('nameGroup').style.display = 'none';
+        document.getElementById('autoCheckin').style.display = 'block';
+    } catch (error) {
+        console.error('Registration error:', error);
+        showStatus('Registration failed: ' + error.message, 'error');
+        document.getElementById('registerBtn').disabled = false;
+        document.getElementById('registerBtn').innerHTML = '✅';
+    }
 }
 
 function showStatus(message, type) {
@@ -319,10 +399,10 @@ function showStatus(message, type) {
     statusDiv.className = `status ${type}`;
     statusDiv.classList.remove('hidden');
     console.log(`Status [${type}]:`, message);
-    
+
     setTimeout(() => {
         statusDiv.classList.add('hidden');
-    }, 5000);
+    }, 5001);
 }
 
 // Show name update form
@@ -346,22 +426,22 @@ async function updateName() {
     const passphraseInput = document.getElementById('passphrase');
     const newName = newNameInput.value.trim();
     const passphrase = passphraseInput.value.trim();
-    
+
     if (!newName) {
         showStatus('Please enter a name', 'error');
         newNameInput.focus();
         return;
     }
-    
+
     if (!passphrase) {
         showStatus('Please enter passphrase', 'error');
         passphraseInput.focus();
         return;
     }
-    
+
     document.getElementById('updateBtn').disabled = true;
     document.getElementById('updateBtn').innerHTML = 'Updating...';
-    
+
     try {
         const response = await fetch('/api/device/' + deviceFingerprint + '/update-name', {
             method: 'POST',
@@ -373,14 +453,14 @@ async function updateName() {
                 passphrase: passphrase
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             showStatus(`Name updated to: ${newName}`, 'success');
             document.getElementById('updateNameGroup').style.display = 'none';
             document.getElementById('passphrase').value = '';
-            
+
             document.getElementById('autoCheckin').innerHTML = `
                 <div class="loading">
                     ✅ Welcome ${newName}!<br>
@@ -395,7 +475,7 @@ async function updateName() {
         console.error('Name update error:', error);
         showStatus('Network error during name update', 'error');
     }
-    
+
     document.getElementById('updateBtn').disabled = false;
     document.getElementById('updateBtn').innerHTML = '✅ Update';
 }

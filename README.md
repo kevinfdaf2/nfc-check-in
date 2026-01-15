@@ -47,10 +47,10 @@ pip install -r requirements.txt
 
 5. Run the application:
 ```bash
-python app.py
+lsof -ti:5001 | xargs kill -9 2>/dev/null; sleep 1; /Users/kevin/git/nfc-check-in/.venv/bin/python app.py
 ```
 
-6. Open your browser to `http://localhost:5002`
+6. Open your browser to `http://localhost:5001`
 
 ### Environment Variables
 

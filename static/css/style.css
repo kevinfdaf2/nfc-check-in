@@ -91,38 +91,77 @@ h1 {
 
 label {
     display: block;
-    margin-bottom: 5px;
+    margin-bottom: 8px;
     color: #fdde8c;
     font-weight: 600;
     font-size: 13px;
 }
 
+.input-button-group {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.input-button-group input[type="text"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-inline {
+    padding: 12px;
+    width: 50px;
+    height: 50px;
+    font-size: 20px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+}
+
 input[type="text"] {
     width: 100%;
-    padding: 15px;
-    border: 2px solid #e1e1e1;
+    padding: 12px 15px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid rgba(253, 222, 140, 0.3);
     border-radius: 10px;
-    font-size: 16px;
-    transition: border-color 0.3s;
+    font-size: 15px;
+    color: #fdde8c;
+    transition: all 0.3s ease;
 }
 
 input[type="text"]:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: rgba(253, 222, 140, 0.6);
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 10px rgba(253, 222, 140, 0.2);
+}
+
+input[type="text"]::placeholder {
+    color: rgba(253, 222, 140, 0.5);
 }
 
 input[type="password"] {
     width: 100%;
-    padding: 15px;
-    border: 2px solid #e1e1e1;
+    padding: 12px 15px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid rgba(253, 222, 140, 0.3);
     border-radius: 10px;
-    font-size: 16px;
-    transition: border-color 0.3s;
+    font-size: 15px;
+    color: #fdde8c;
+    transition: all 0.3s ease;
 }
 
 input[type="password"]:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: rgba(253, 222, 140, 0.6);
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 10px rgba(253, 222, 140, 0.2);
+}
+
+input[type="password"]::placeholder {
+    color: rgba(253, 222, 140, 0.5);
 }
 
 .btn-group {
@@ -143,8 +182,10 @@ input[type="password"]:focus {
 }
 
 .btn-checkin {
-    background: linear-gradient(45deg, #4CAF50, #45a049);
-    color: white;
+    background: linear-gradient(135deg, #5da683, #4a8a68);
+    color: #fdde8c;
+    border: 2px solid rgba(253, 222, 140, 0.3);
+    box-shadow: 0 4px 15px rgba(93, 166, 131, 0.3);
 }
 
 .btn-checkout {
@@ -154,7 +195,8 @@ input[type="password"]:focus {
 
 .btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 6px 20px rgba(253, 222, 140, 0.4);
+    filter: brightness(1.1);
 }
 
 .btn:disabled {
