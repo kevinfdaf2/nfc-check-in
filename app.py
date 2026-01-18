@@ -22,6 +22,9 @@ SCOPES           = ['https://www.googleapis.com/auth/spreadsheets', 'https://www
 CREDENTIALS_FILE = 'credentials.json'
 TOKEN_FILE       = 'token.json'
 SPREADSHEET_ID   = '1un4pQ3a_zjN6SdH80ikVEAqr1nDS5BnGw7-sRal64sY'
+PASSPHRASE       = os.environ.get('ADMIN_PASSPHRASE', 'imsb')
+
+
 
 def get_allowed_locations():
     """Get allowed check-in locations from Google Sheets Location tab"""
@@ -31,16 +34,16 @@ def get_allowed_locations():
         
     try:
         service = build('sheets', 'v4', credentials=creds)
-        
+
         # Read from 'Location' sheet
         result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range='Location!A:D'
         ).execute()
-        
+
         values = result.get('values', [])
         locations = {}
-        
+
         # Parse locations (skip header row)
         for row in values[1:]:
             if len(row) >= 4:
@@ -53,46 +56,48 @@ def get_allowed_locations():
                 except (ValueError, IndexError) as e:
                     print(f"Invalid location data for {name}: {e}")
                     continue
-        
+
         print(f"✅ Loaded {len(locations)} locations from sheet")
         return locations
-        
+
     except Exception as e:
         print(f"Error reading locations from sheet: {e}")
         return {}
 
+
+
 def calculate_distance(lat1, lng1, lat2, lng2):
     """Calculate distance between two GPS coordinates in meters using Haversine formula"""
-    
+
     R = 6371000  # Earth's radius in meters
-    
+
     lat1_rad = radians(lat1)
     lat2_rad = radians(lat2)
     delta_lat = radians(lat2 - lat1)
     delta_lng = radians(lng2 - lng1)
-    
+
     a = sin(delta_lat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(delta_lng / 2) ** 2
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    
+
     return R * c
+
+
 
 def get_device_from_sheets(device_id):
     """Get device info from Google Sheets Users tab"""
     creds = get_google_credentials()
     if not creds:
         return None
-        
+
     try:
         service = build('sheets', 'v4', credentials=creds)
-        
-        # Read from 'Users' sheet
         result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range='Users!A:E'
         ).execute()
-        
+
         values = result.get('values', [])
-        
+
         # Find device by ID (Device ID is in column A, User Name in column B)
         for row in values[1:]:  # Skip header
             if len(row) > 0 and row[0] == device_id:
@@ -103,10 +108,12 @@ def get_device_from_sheets(device_id):
                     'checkin_count': int(row[4]) if len(row) > 4 and row[4].isdigit() else 0
                 }
         return None
-        
+
     except Exception as e:
         print(f"Error reading devices from Users sheet: {e}")
         return None
+
+
 
 def save_device_to_sheets(device_id, device_data):
     """Save device info to Google Sheets Users tab"""
@@ -114,26 +121,26 @@ def save_device_to_sheets(device_id, device_data):
     if not creds:
         print(f"📊 Device data would be saved locally: {device_data['name']}")
         return True
-        
+
     try:
         service = build('sheets', 'v4', credentials=creds)
-        
+
         # Use existing Users sheet - no need to create
         # Check if device already exists
         result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range='Users!A:E'
         ).execute()
-        
+
         values = result.get('values', [])
         device_row = None
-        
+
         # Find existing device
         for i, row in enumerate(values[1:], start=2):  # Skip header, start from row 2
             if len(row) > 0 and row[0] == device_id:
                 device_row = i
                 break
-        
+
         device_values = [
             device_id,
             device_data['name'],
@@ -141,7 +148,7 @@ def save_device_to_sheets(device_id, device_data):
             device_data.get('last_checkin', ''),
             str(device_data.get('checkin_count', 0))
         ]
-        
+
         if device_row:
             # Update existing device
             service.spreadsheets().values().update(
@@ -159,18 +166,20 @@ def save_device_to_sheets(device_id, device_data):
                 insertDataOption='INSERT_ROWS',
                 body={'values': [device_values]}
             ).execute()
-        
+
         print(f"✅ Device data saved to Users sheet: {device_data['name']} - {device_id}")
         return True
-        
+
     except Exception as e:
         print(f"❌ Error saving device to Users sheet: {e}")
         return False
 
+
+
 def get_google_credentials():
     """Get Google API credentials using OAuth or environment variables"""
     creds = None
-    
+
     # For cloud deployment, create credentials from environment variables
     if os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
         # Create credentials.json content from environment variables
@@ -185,16 +194,16 @@ def get_google_credentials():
                 "redirect_uris": ["http://localhost"]
             }
         }
-        
+
         # Save to temporary file for this session
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(credentials_content, f)
             temp_credentials_file = f.name
-        
+
         CREDENTIALS_FILE_TO_USE = temp_credentials_file
     else:
         CREDENTIALS_FILE_TO_USE = CREDENTIALS_FILE
-    
+
     # Load existing token from environment variable (for cloud) or file (for local)
     if os.environ.get('GOOGLE_TOKEN_JSON'):
         # Cloud deployment - load from environment variable
@@ -203,7 +212,7 @@ def get_google_credentials():
     elif os.path.exists(TOKEN_FILE):
         # Local development - load from file
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-    
+
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -219,7 +228,7 @@ def get_google_credentials():
                 else:
                     # Local development
                     flow.redirect_uri = 'http://localhost:5001/oauth2callback'
-                
+
                 # Generate authorization URL
                 auth_url, _ = flow.authorization_url(prompt='consent')
                 print(f"🔐 Please visit this URL to authorize the application: {auth_url}")
@@ -227,12 +236,14 @@ def get_google_credentials():
             else:
                 print("❌ No credentials found - set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables")
                 return None
-            
+
         # Save the credentials for the next run
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
-    
+
     return creds
+
+
 
 def create_spreadsheet(service, title="NFC Check-in Data"):
     """Create a new Google Spreadsheet"""
@@ -246,10 +257,10 @@ def create_spreadsheet(service, title="NFC Check-in Data"):
             }
         }]
     }
-    
+
     sheet = service.spreadsheets().create(body=spreadsheet).execute()
     spreadsheet_id = sheet.get('spreadsheetId')
-    
+
     # Add headers
     headers = [['Timestamp', 'Device ID', 'Name', 'Event', 'Location']]
     service.spreadsheets().values().update(
@@ -258,8 +269,10 @@ def create_spreadsheet(service, title="NFC Check-in Data"):
         valueInputOption='RAW',
         body={'values': headers}
     ).execute()
-    
+
     return spreadsheet_id
+
+
 
 def append_to_sheet(data):
     """Append data to Google Sheets"""
@@ -268,10 +281,10 @@ def append_to_sheet(data):
     if not creds:
         print(f"⚠️ No credentials available for {data['name']}: {data['event']} at {data['timestamp']}")
         return False
-    
+
     try:
         service = build('sheets', 'v4', credentials=creds)
-        
+
         values = [[
             data['timestamp'],
             data['device_id'],
@@ -279,7 +292,7 @@ def append_to_sheet(data):
             data['event'],
             data['location']
         ]]
-        
+
         body = {'values': values}
         result = service.spreadsheets().values().append(
             spreadsheetId=SPREADSHEET_ID,
@@ -288,13 +301,15 @@ def append_to_sheet(data):
             insertDataOption='INSERT_ROWS',
             body=body
         ).execute()
-        
+
         print(f"✅ Data saved to Google Sheets: {data['name']} - {data['event']}")
         return True
         
     except Exception as e:
         print(f"❌ Error writing to sheets: {e}")
         return False
+
+
 
 def check_already_checked_in_today(device_id):
     """Check if device has already checked in today"""
@@ -304,27 +319,27 @@ def check_already_checked_in_today(device_id):
 
     try:
         service = build('sheets', 'v4', credentials=creds)
-        
+
         # Get all check-ins
         result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range='Check-ins!A:E'
         ).execute()
-        
+
         values = result.get('values', [])
         if not values or len(values) < 2:  # No data or only header
             return False
-        
+
         # Get today's date in Melbourne timezone
         melbourne_tz = pytz.timezone('Australia/Melbourne')
         today = datetime.now(melbourne_tz).date()
-        
+
         # Check recent check-ins (reverse order to check most recent first)
         for row in reversed(values[1:]):  # Skip header
             if len(row) >= 2:
                 timestamp_str = row[0]
                 row_device_id = row[1]
-                
+
                 # Check if this is the same device
                 if row_device_id == device_id:
                     try:
@@ -341,17 +356,21 @@ def check_already_checked_in_today(device_id):
                     except Exception as e:
                         print(f"Error parsing timestamp '{timestamp_str}': {e}")
                         continue
-        
+
         return False
-        
+
     except Exception as e:
         print(f"Error checking previous check-ins: {e}")
         return False
+
+
 
 @app.route('/')
 def index():
     location = request.args.get('location', 'Unknown Location')
     return render_template('index.html', location=location)
+
+
 
 @app.route('/api/locations')
 def api_locations():
@@ -366,6 +385,8 @@ def api_locations():
         print(f"Error getting locations: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+
 @app.route('/api/verify-location', methods=['POST'])
 def api_verify_location():
     """Verify if user's GPS coordinates are within allowed location radius"""
@@ -374,26 +395,26 @@ def api_verify_location():
         user_lat = data.get('latitude')
         user_lng = data.get('longitude')
         location_name = data.get('location')
-        
+
         if not all([user_lat, user_lng, location_name]):
             return jsonify({'success': False, 'error': 'Missing GPS coordinates or location'}), 400
-        
+
         # Get allowed locations from Google Sheets
         allowed_locations = get_allowed_locations()
-        
+
         # Check if location exists (case-insensitive)
         matched_location = None
         for loc_name, loc_data in allowed_locations.items():
             if loc_name.lower() == location_name.lower():
                 matched_location = loc_name
                 break
-        
+
         if not matched_location:
             return jsonify({'success': False, 'error': f'Location "{location_name}" not configured in Location sheet'}), 400
-        
+
         allowed = allowed_locations[matched_location]
         distance = calculate_distance(user_lat, user_lng, allowed['lat'], allowed['lng'])
-        
+
         if distance <= allowed['radius']:
             return jsonify({
                 'success': True,
@@ -408,22 +429,24 @@ def api_verify_location():
                 'distance': round(distance, 1),
                 'message': f'Too far from {location_name} - you are {round(distance, 1)}m away (max {allowed["radius"]}m)'
             })
-            
+
     except Exception as e:
         print(f"Error verifying location: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
 
 @app.route('/api/checkin', methods=['POST'])
 def api_checkin():
     try:
         data = request.get_json()
-        
+
         # Validate required fields
         required_fields = ['device_id', 'name', 'event', 'timestamp', 'latitude', 'longitude']
         for field in required_fields:
             if field not in data:
                 return jsonify({'success': False, 'error': f'Missing field: {field}'}), 400
-        
+
         # Check if already checked in today
         if check_already_checked_in_today(data['device_id']):
             return jsonify({
@@ -454,12 +477,12 @@ def api_checkin():
                     'success': False,
                     'error': f'You are too far from {matched_location} ({round(distance, 1)}m away, max {allowed["radius"]}m allowed)'
                 }), 403
-        
+
         data['location'] = location
-            
+
         # Register device if not already registered
         device_info = get_device_from_sheets(data['device_id'])
-        
+
         if not device_info:
             # New device
             device_data = {
@@ -479,22 +502,24 @@ def api_checkin():
                 'checkin_count': device_info.get('checkin_count', 0) + 1
             }
             save_device_to_sheets(data['device_id'], device_data)
-        
+
         # Try to save to Google Sheets
         sheet_success = append_to_sheet(data)
         if not sheet_success:
             return jsonify({'success': False, 'error': 'Failed to save data'}), 500
-        
+
         return jsonify({'success': True, 'message': 'Check-in recorded successfully'})
-        
+
     except Exception as e:
         print(f"Error in api_checkin: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+
 @app.route('/api/device/<device_id>')
 def api_device(device_id):
     device_info = get_device_from_sheets(device_id)
-    
+
     if device_info:
         return jsonify({
             'registered': True,
@@ -504,26 +529,28 @@ def api_device(device_id):
     else:
         return jsonify({'registered': False})
 
+
+
 @app.route('/api/device/<device_id>/update-name', methods=['POST'])
 def api_update_device_name(device_id):
     try:
         data = request.get_json()
         new_name = data.get('new_name', '').strip()
         passphrase = data.get('passphrase', '').strip()
-        
+
         if not new_name:
             return jsonify({'success': False, 'error': 'Name is required'}), 400
-        
-        if passphrase != 'imsb':
+
+        if passphrase != PASSPHRASE:
             return jsonify({'success': False, 'error': 'WHY BABY WHY, you\'re sb'}), 403
-        
+
         device_info = get_device_from_sheets(device_id)
-        
+
         if not device_info:
             return jsonify({'success': False, 'error': 'Device not registered'}), 404
-        
+
         old_name = device_info['name']
-        
+
         # Update device with new name
         device_data = {
             'name': new_name,
@@ -532,25 +559,103 @@ def api_update_device_name(device_id):
             'checkin_count': device_info.get('checkin_count', 0),
             'name_updated_at': datetime.now().isoformat()
         }
-        
+
         save_device_to_sheets(device_id, device_data)
-        
+
         print(f"🔄 Device name updated: {device_id} - {old_name} → {new_name}")
-        
+
         return jsonify({
             'success': True, 
             'message': f'Name updated from {old_name} to {new_name}',
             'old_name': old_name,
             'new_name': new_name
         })
-        
+
     except Exception as e:
         print(f"Error updating device name: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+
+@app.route('/api/device/<device_id>/reset', methods=['POST'])
+def api_reset_device(device_id):
+    try:
+        data = request.get_json()
+        passphrase = data.get('passphrase', '').strip()
+
+        if passphrase != PASSPHRASE:
+            return jsonify({'success': False, 'error': 'Invalid passphrase'}), 403
+
+        device_info = get_device_from_sheets(device_id)
+
+        if not device_info:
+            return jsonify({'success': False, 'error': 'Device not registered'}), 404
+
+        # Delete device from Users sheet
+        creds = get_google_credentials()
+        if not creds:
+            return jsonify({'success': False, 'error': 'Authentication failed'}), 500
+
+        try:
+            service = build('sheets', 'v4', credentials=creds)
+
+            # Get all users to find the row
+            result = service.spreadsheets().values().get(
+                spreadsheetId=SPREADSHEET_ID,
+                range='Users!A:E'
+            ).execute()
+
+            values = result.get('values', [])
+            row_to_delete = None
+
+            # Find the row with this device_id
+            for idx, row in enumerate(values):
+                if len(row) > 0 and row[0] == device_id:
+                    row_to_delete = idx + 1  # +1 because sheets are 1-indexed
+                    break
+
+            if row_to_delete:
+                # Delete the row
+                requests = [{
+                    'deleteDimension': {
+                        'range': {
+                            'sheetId': 0,  # Assuming Users is the first sheet
+                            'dimension': 'ROWS',
+                            'startIndex': row_to_delete - 1,
+                            'endIndex': row_to_delete
+                        }
+                    }
+                }]
+
+                service.spreadsheets().batchUpdate(
+                    spreadsheetId=SPREADSHEET_ID,
+                    body={'requests': requests}
+                ).execute()
+
+                print(f"🗑️ Device reset: {device_id} - {device_info['name']}")
+
+                return jsonify({
+                    'success': True,
+                    'message': f'Device {device_id} has been reset'
+                })
+            else:
+                return jsonify({'success': False, 'error': 'Device not found'}), 404
+
+        except Exception as e:
+            print(f"Error deleting device from sheet: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    except Exception as e:
+        print(f"Error resetting device: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
 @app.route('/api/data')
 def api_data():
     return jsonify({'error': 'Please use Google Sheets directly to view data', 'spreadsheet_id': SPREADSHEET_ID})
+
+
 
 @app.route('/oauth2callback')
 def oauth2callback():
@@ -621,10 +726,14 @@ def oauth2callback():
         </html>
         '''
 
+
+
 @app.route('/admin')
 def admin():
     """Admin dashboard with statistics"""
     return render_template('admin.html')
+
+
 
 @app.route('/api/admin-stats')
 def api_admin_stats():
@@ -632,37 +741,37 @@ def api_admin_stats():
     creds = get_google_credentials()
     if not creds:
         return jsonify({'error': 'No Google credentials available'}), 403
-    
+
     try:
         service = build('sheets', 'v4', credentials=creds)
-        
+
         # Get all check-ins from Check-ins sheet
         result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range='Check-ins!A:E'
         ).execute()
-        
+
         values = result.get('values', [])
-        
+
         # Skip header row and count locations and devices
         location_counter = Counter()
         device_checkins = {}  # device_id -> {count, most_recent_name, timestamp}
-        
+
         for row in values[1:]:  # Skip header
             if len(row) >= 5:
                 timestamp = row[0]  # Column A: Timestamp
                 device_id = row[1]  # Column B: Device ID
                 name = row[2]  # Column C: Name
                 location = row[4].upper()  # Column E: Location (uppercase)
-                
+
                 location_counter[location] += 1
-                
+
                 # Track device check-ins with most recent name
                 if device_id not in device_checkins:
                     device_checkins[device_id] = {'count': 0, 'most_recent_name': name, 'timestamp': timestamp}
-                
+
                 device_checkins[device_id]['count'] += 1
-                
+
                 # Update to most recent name based on timestamp
                 if timestamp > device_checkins[device_id]['timestamp']:
                     device_checkins[device_id]['most_recent_name'] = name
@@ -709,6 +818,8 @@ def health():
         'mode': 'google',
         'timestamp': datetime.now().isoformat()
     })
+
+
 
 if __name__ == '__main__':
     print("🚀 NFC Check-In System Starting...")

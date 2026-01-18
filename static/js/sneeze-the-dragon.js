@@ -40,17 +40,14 @@ var HEIGHT,
 //INIT THREE JS, SCREEN AND MOUSE EVENTS
 
 function init() {
-  
-  console.log('Dragon init() called');
-  console.log('THREE available?', typeof THREE !== 'undefined');
-  
+
   powerField = document.getElementById('power');
-  
+
   if (typeof THREE === 'undefined') {
     console.error('THREE.js is not loaded!');
     return;
   }
-  
+
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x652e37, 350, 500);
 

@@ -187,67 +187,67 @@ body {
     .stats-container {
         padding: 10px;
     }
-    
+
     .container {
         width: calc(100% - 20px);
         padding: 20px 15px;
         margin: 0 auto 15px auto;
     }
-    
+
     .container h1 {
         font-size: 20px;
         margin: 10px 0;
     }
-    
+
     .container .subtitle {
         font-size: 13px;
     }
-    
+
     .logo {
         width: 60px;
         height: 60px;
         font-size: 24px;
     }
-    
+
     .stats-section {
         padding: 15px;
         margin-bottom: 15px;
     }
-    
+
     .stats-title {
         font-size: 18px;
         margin-bottom: 15px;
         padding-bottom: 10px;
         gap: 8px;
     }
-    
+
     .stats-title span {
         font-size: 22px;
     }
-    
+
     .stats-table th {
         padding: 10px 5px;
         font-size: 10px;
     }
-    
+
     .stats-table td {
         padding: 10px 5px;
         font-size: 14px;
     }
-    
+
     .rank {
         font-size: 16px;
     }
-    
+
     .count {
         font-size: 16px;
     }
-    
+
     .count::before {
         left: -20px;
         font-size: 14px;
     }
-    
+
     .loading, .error {
         padding: 40px 15px;
         font-size: 16px;

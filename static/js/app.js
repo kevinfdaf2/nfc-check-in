@@ -1,4 +1,3 @@
-console.log('Script loaded successfully');
 let deviceFingerprint = null;
 
 // Generate a unique random component for this device
@@ -104,7 +103,7 @@ function getPersistentDeviceId() {
     let storedDeviceId = localStorage.getItem('nfc_device_id');
 
     if (storedDeviceId) {
-        console.log('Found existing device ID in storage:', storedDeviceId);
+        console.log('Found existing device ID in storage.');
         return storedDeviceId;
     }
 
@@ -113,7 +112,7 @@ function getPersistentDeviceId() {
 
     try {
         localStorage.setItem('nfc_device_id', newDeviceId);
-        console.log('Device ID saved to localStorage:', newDeviceId);
+        console.log('Device ID saved to localStorage.');
     } catch (e) {
         console.warn('Could not save to localStorage:', e);
     }
@@ -126,31 +125,75 @@ function resetDeviceId() {
     if (!confirm('Reset your device ID? You will need to register again with your name.')) {
         return;
     }
-    
+
     console.log('Resetting device ID...');
-    
+
     // Clear stored device data
     localStorage.removeItem('nfc_device_id');
     localStorage.removeItem('nfc_device_random');
-    
+
     // Generate new device ID
     deviceFingerprint = generateDeviceFingerprint();
-    
+
     try {
         localStorage.setItem('nfc_device_id', deviceFingerprint);
         console.log('New device ID generated:', deviceFingerprint);
     } catch (e) {
         console.warn('Could not save new device ID:', e);
     }
-    
+
     // Reload page to restart registration
     location.reload();
+}
+
+// Reset user name (uses update-name endpoint with new name input)
+async function resetUserName() {
+    const passphrase = prompt('Enter passphrase to reset your name:');
+    
+    if (!passphrase) {
+        return;
+    }
+    
+    const newName = prompt('Enter your new name:');
+    
+    if (!newName || !newName.trim()) {
+        alert('Name is required');
+        return;
+    }
+    
+    console.log('Resetting user name...');
+    
+    try {
+        const response = await fetch('/api/device/' + deviceFingerprint + '/update-name', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                new_name: newName.trim(),
+                passphrase: passphrase
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(`Name updated to: ${newName}`);
+            location.reload();
+        } else {
+            alert('Failed to update name: ' + (result.error || 'Invalid passphrase'));
+        }
+        
+    } catch (error) {
+        console.error('Reset name error:', error);
+        alert('Network error during name update');
+    }
 }
 
 // Initialize device fingerprint
 console.log('Initializing device fingerprint...');
 deviceFingerprint = getPersistentDeviceId();
-console.log('Final device fingerprint:', deviceFingerprint);
+// console.log('Final device fingerprint:', deviceFingerprint);
 
 // Get location from URL parameter
 const urlParams = new URLSearchParams(window.location.search);
@@ -165,7 +208,7 @@ async function fetchValidLocations() {
         const data = await response.json();
         if (data.success) {
             validLocations = data.locations;
-            console.log('Valid locations:', validLocations);
+            // console.log('Valid locations:', validLocations);
             return validLocations;
         }
     } catch (error) {
@@ -181,7 +224,7 @@ function requestGPSLocation() {
             reject('Geolocation not supported by browser');
             return;
         }
-        
+
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 userGPSCoords = {
@@ -211,28 +254,30 @@ document.getElementById('deviceInfo').innerHTML = `
     <small style="color: #999;">
         Device ID is stored in browser and persists across sessions.<br>
         <a href="#" onclick="resetDeviceId(); return false;" style="color: #666; text-decoration: underline;">Reset Device ID</a>
+        <span style="color: #999;"> | </span>
+        <a href="#" onclick="resetUserName(); return false;" style="color: #666; text-decoration: underline;">Reset Name</a>
     </small>
 `;
 document.getElementById('deviceInfo').classList.remove('hidden');
 
 // Auto-check device and perform action
-console.log('About to start autoCheckIn...');
+// console.log('About to start autoCheckIn...');
 autoCheckIn();
 
 async function autoCheckIn() {
     try {
-        console.log('Starting auto check-in...');
-        
+        // console.log('Starting auto check-in...');
+
         // Fetch valid locations first
         await fetchValidLocations();
-        
+
         // Check if location is provided
         if (!currentLocation || currentLocation === 'Unknown Location') {
             document.getElementById('autoCheckin').style.display = 'none';
             showStatus('⚠️ Location required! Please scan QR code with location parameter', 'error');
             return;
         }
-        
+
         // Validate location is registered (case-insensitive)
         const matchedLocation = validLocations.find(loc => loc.toLowerCase() === currentLocation.toLowerCase());
         if (!matchedLocation) {
@@ -242,7 +287,7 @@ async function autoCheckIn() {
         }
                 // Request GPS permission and verify location
         document.getElementById('autoCheckin').innerHTML = '<div class="loading">📍 Getting your location...</div>';
-        
+
         try {
             await requestGPSLocation();
             
@@ -256,18 +301,18 @@ async function autoCheckIn() {
                     location: currentLocation
                 })
             });
-            
+
             const verifyData = await verifyResponse.json();
-            
+
             if (!verifyData.verified) {
                 document.getElementById('autoCheckin').style.display = 'none';
                 showStatus('🚫 ' + verifyData.message, 'error');
                 return;
             }
-            
+
             console.log('Location verified:', verifyData.message);
             document.getElementById('autoCheckin').innerHTML = '<div class="loading">🔄 Checking in...</div>';
-            
+
         } catch (gpsError) {
             document.getElementById('autoCheckin').style.display = 'none';
             showStatus('📍 Please enable location services.', 'error');
@@ -275,15 +320,15 @@ async function autoCheckIn() {
         }
                 const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
+
         const response = await fetch('/api/device/' + deviceFingerprint, {
             signal: controller.signal
         });
         clearTimeout(timeoutId);
-        
+
         const data = await response.json();
-        console.log('Device check result:', data);
-        
+        // console.log('Device check result:', data);
+
         if (data.registered && data.name) {
             console.log('Device registered, performing check-in for:', data.name);
             await performCheckIn(data.name);
@@ -297,7 +342,7 @@ async function autoCheckIn() {
         console.error('Error in auto check-in:', err);
         document.getElementById('autoCheckin').style.display = 'none';
         document.getElementById('nameGroup').style.display = 'block';
-        
+
         if (err.name === 'AbortError') {
             showStatus('Connection timeout - please try again', 'error');
         } else {
@@ -313,7 +358,7 @@ async function performCheckIn(name) {
         if (!userGPSCoords) {
             throw new Error('GPS location required');
         }
-        
+
         // Format timestamp in Melbourne time (to minutes)
         const melbourneTime = new Date().toLocaleString('en-AU', {
             timeZone: 'Australia/Melbourne',
@@ -324,7 +369,7 @@ async function performCheckIn(name) {
             minute: '2-digit',
             hour12: false
         });
-        
+
         const data = {
             device_id: deviceFingerprint,
             name: name,
@@ -334,12 +379,12 @@ async function performCheckIn(name) {
             latitude: userGPSCoords.latitude,
             longitude: userGPSCoords.longitude
         };
-        
-        console.log('Sending check-in data:', data);
-        
+
+        // console.log('Sending check-in data:', data);
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
+
         const response = await fetch('/api/checkin', {
             method: 'POST',
             headers: {
@@ -349,10 +394,10 @@ async function performCheckIn(name) {
             signal: controller.signal
         });
         clearTimeout(timeoutId);
-        
+
         const result = await response.json();
         console.log('Check-in result:', result);
-        
+
         if (result.success) {
             document.getElementById('autoCheckin').innerHTML = `
                 <div class="loading">
@@ -384,7 +429,7 @@ async function performCheckIn(name) {
 async function registerAndCheckin() {
     const nameInput = document.getElementById('name');
     const name = nameInput.value.trim();
-    
+
     if (!name) {
         showStatus('Please enter your name', 'error');
         nameInput.focus();

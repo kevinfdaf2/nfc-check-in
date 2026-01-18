@@ -12,17 +12,11 @@
     <div id="world"></div>
     <div id="instructions">Play with the dragon while checking in!<br/><span class="lightInstructions">- Press and hold to charge, release to sneeze -</span></div>
     <div id="power"></div>
-    
-    <!-- Welcome Message Overlay (outside container) -->
     <div id="welcomeMessage" style="display: none;"></div>
-    
-    <!-- Title Container (top) -->
     <div class="title-container">
         <div class="logo">🏠</div>
-        <!-- <h1>Check-In</h1> -->
         <p class="subtitle">{{ location|upper }}'s 🏡</p>
     </div>
-    
     <!-- Check-in Interface Container (below title) -->
     <div class="container">
         <div class="form-group" id="nameGroup" style="display: none;">
@@ -34,7 +28,7 @@
                 </button>
             </div>
         </div>
-        
+
         <div class="form-group" id="updateNameGroup" style="display: none;">
             <label for="newName">Update Your Name</label>
             <input type="text" id="newName" placeholder="Enter new name" autocomplete="name">
@@ -49,11 +43,11 @@
                 </button>
             </div>
         </div>
-        
+
         <div id="autoCheckin">
             <div class="loading">🔄 Checking in...</div>
         </div>
-        
+
         <div id="status" class="status hidden"></div>
         <div id="deviceInfo" class="device-info hidden"></div>
     </div>
@@ -62,17 +56,16 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/84/three.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.rawgit.com/mrdoob/three.js/r84/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/1.20.3/TweenMax.min.js" crossorigin="anonymous"></script>
-    
-    <script>
+
+    <!-- <script>
         console.log('THREE loaded?', typeof THREE !== 'undefined');
         console.log('TweenMax loaded?', typeof TweenMax !== 'undefined');
         console.log('OrbitControls loaded?', typeof THREE.OrbitControls !== 'undefined');
-    </script>
-    
+    </script> -->
+
     <!-- Dragon Game - Load after all dependencies -->
     <script src="{{ url_for('static', filename='js/sneeze-the-dragon.js') }}"></script>
-    
-    <!-- Check-in Logic -->
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
