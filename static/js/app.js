@@ -121,6 +121,32 @@ function getPersistentDeviceId() {
     return newDeviceId;
 }
 
+// Reset device ID and generate a new one
+function resetDeviceId() {
+    if (!confirm('Reset your device ID? You will need to register again with your name.')) {
+        return;
+    }
+    
+    console.log('Resetting device ID...');
+    
+    // Clear stored device data
+    localStorage.removeItem('nfc_device_id');
+    localStorage.removeItem('nfc_device_random');
+    
+    // Generate new device ID
+    deviceFingerprint = generateDeviceFingerprint();
+    
+    try {
+        localStorage.setItem('nfc_device_id', deviceFingerprint);
+        console.log('New device ID generated:', deviceFingerprint);
+    } catch (e) {
+        console.warn('Could not save new device ID:', e);
+    }
+    
+    // Reload page to restart registration
+    location.reload();
+}
+
 // Initialize device fingerprint
 console.log('Initializing device fingerprint...');
 deviceFingerprint = getPersistentDeviceId();
@@ -183,7 +209,8 @@ function requestGPSLocation() {
 document.getElementById('deviceInfo').innerHTML = `
     Device ID: ${deviceFingerprint}<br>
     <small style="color: #999;">
-        Device ID is stored in browser and persists across sessions.
+        Device ID is stored in browser and persists across sessions.<br>
+        <a href="#" onclick="resetDeviceId(); return false;" style="color: #666; text-decoration: underline;">Reset Device ID</a>
     </small>
 `;
 document.getElementById('deviceInfo').classList.remove('hidden');
