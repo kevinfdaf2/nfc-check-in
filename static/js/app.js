@@ -1,11 +1,35 @@
 console.log('Script loaded successfully');
 let deviceFingerprint = null;
 
-// Generate device fingerprint (more consistent and unique)
+// Generate a unique random component for this device
+function generateRandomDeviceComponent() {
+    // Generate a truly random UUID-like string
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// Generate device fingerprint (unique per device, even same model)
 function generateDeviceFingerprint() {
     console.log('Generating new device fingerprint...');
 
-    // Canvas fingerprinting for uniqueness
+    // Get or create a unique random component for this specific device
+    let randomComponent = localStorage.getItem('nfc_device_random');
+    if (!randomComponent) {
+        randomComponent = generateRandomDeviceComponent();
+        try {
+            localStorage.setItem('nfc_device_random', randomComponent);
+            console.log('Generated new random component:', randomComponent);
+        } catch (e) {
+            console.warn('Could not save random component:', e);
+        }
+    } else {
+        console.log('Using existing random component:', randomComponent);
+    }
+
+    // Canvas fingerprinting for additional uniqueness
     let canvasFingerprint = '';
     try {
         const canvas = document.createElement('canvas');
@@ -38,8 +62,9 @@ function generateDeviceFingerprint() {
         webglFingerprint = 'webgl-error';
     }
 
-    // Use more stable device characteristics
+    // Combine random component with device characteristics
     const fingerprint = {
+        random: randomComponent, // Unique per device instance
         screen: `${screen.width}x${screen.height}x${screen.colorDepth}`,
         availScreen: `${screen.availWidth}x${screen.availHeight}`,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -58,10 +83,9 @@ function generateDeviceFingerprint() {
         webgl: webglFingerprint,
         vendor: navigator.vendor || '',
         product: navigator.product || '',
-        productSub: navigator.productSub || '',
-        timestamp: Date.now() // Add current timestamp for extra uniqueness on first generation
+        productSub: navigator.productSub || ''
     };
-    
+
     const fingerprintString = JSON.stringify(fingerprint);
     // Create a hash-like ID from the fingerprint
     let hash = 0;
@@ -76,24 +100,24 @@ function generateDeviceFingerprint() {
 // Get or create persistent device fingerprint
 function getPersistentDeviceId() {
     console.log('Getting persistent device ID...');
-    
+
     let storedDeviceId = localStorage.getItem('nfc_device_id');
-    
+
     if (storedDeviceId) {
         console.log('Found existing device ID in storage:', storedDeviceId);
         return storedDeviceId;
     }
-    
+
     console.log('No stored device ID found, generating new one...');
     const newDeviceId = generateDeviceFingerprint();
-    
+
     try {
         localStorage.setItem('nfc_device_id', newDeviceId);
         console.log('Device ID saved to localStorage:', newDeviceId);
     } catch (e) {
         console.warn('Could not save to localStorage:', e);
     }
-    
+
     return newDeviceId;
 }
 
