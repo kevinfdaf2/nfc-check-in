@@ -21,9 +21,8 @@ app = Flask(__name__)
 SCOPES           = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/calendar']
 CREDENTIALS_FILE = 'credentials.json'
 TOKEN_FILE       = 'token.json'
-SPREADSHEET_ID   = '1un4pQ3a_zjN6SdH80ikVEAqr1nDS5BnGw7-sRal64sY'
 PASSPHRASE       = os.environ.get('ADMIN_PASSPHRASE', 'imsb')
-
+SPREADSHEET_ID   = os.environ.get('SPREADSHEET_ID', '1un4pQ3a_zjN6SdH80ikVEAqr1nDS5BnGw7-sRal64sY')
 
 
 def get_allowed_locations():
@@ -31,7 +30,7 @@ def get_allowed_locations():
     creds = get_google_credentials()
     if not creds:
         return {}
-        
+
     try:
         service = build('sheets', 'v4', credentials=creds)
 
@@ -42,7 +41,7 @@ def get_allowed_locations():
         ).execute()
 
         values = result.get('values', [])
-        locations = {}
+        locations = {}  # name -> list of {lat, lng, radius}
 
         # Parse locations (skip header row)
         for row in values[1:]:
@@ -52,12 +51,18 @@ def get_allowed_locations():
                     lat = float(row[1])
                     lng = float(row[2])
                     radius = float(row[3])
-                    locations[name] = {'lat': lat, 'lng': lng, 'radius': radius}
+                    
+                    # Support multiple coordinates per location name
+                    if name not in locations:
+                        locations[name] = []
+                    
+                    locations[name].append({'lat': lat, 'lng': lng, 'radius': radius})
                 except (ValueError, IndexError) as e:
                     print(f"Invalid location data for {name}: {e}")
                     continue
 
-        print(f"✅ Loaded {len(locations)} locations from sheet")
+        total_coords = sum(len(coords) for coords in locations.values())
+        print(f"✅ Loaded {len(locations)} location names with {total_coords} coordinate sets from sheet")
         return locations
 
     except Exception as e:
@@ -412,22 +417,33 @@ def api_verify_location():
         if not matched_location:
             return jsonify({'success': False, 'error': f'Location "{location_name}" not configured in Location sheet'}), 400
 
-        allowed = allowed_locations[matched_location]
-        distance = calculate_distance(user_lat, user_lng, allowed['lat'], allowed['lng'])
-
-        if distance <= allowed['radius']:
+        # Check against all coordinate sets for this location
+        allowed_coords = allowed_locations[matched_location]
+        
+        # Find the closest matching coordinate
+        closest_distance = float('inf')
+        closest_coord = None
+        
+        for coord in allowed_coords:
+            distance = calculate_distance(user_lat, user_lng, coord['lat'], coord['lng'])
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_coord = coord
+        
+        # Check if within radius of any coordinate set
+        if closest_distance <= closest_coord['radius']:
             return jsonify({
                 'success': True,
                 'verified': True,
-                'distance': round(distance, 1),
-                'message': f'Location verified - you are {round(distance, 1)}m from {location_name}'
+                'distance': round(closest_distance, 1),
+                'message': f'Location verified - you are {round(closest_distance, 1)}m from {location_name}'
             })
         else:
             return jsonify({
                 'success': True,
                 'verified': False,
-                'distance': round(distance, 1),
-                'message': f'Too far from {location_name} - you are {round(distance, 1)}m away (max {allowed["radius"]}m)'
+                'distance': round(closest_distance, 1),
+                'message': f'Too far from {location_name} - you are {round(closest_distance, 1)}m away (max {closest_coord["radius"]}m)'
             })
 
     except Exception as e:
@@ -469,13 +485,24 @@ def api_checkin():
                 break
 
         if matched_location:
-            allowed = allowed_locations[matched_location]
-            distance = calculate_distance(data['latitude'], data['longitude'], allowed['lat'], allowed['lng'])
+            # Check against all coordinate sets for this location
+            allowed_coords = allowed_locations[matched_location]
             
-            if distance > allowed['radius']:
+            # Find the closest matching coordinate
+            closest_distance = float('inf')
+            closest_coord = None
+            
+            for coord in allowed_coords:
+                distance = calculate_distance(data['latitude'], data['longitude'], coord['lat'], coord['lng'])
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_coord = coord
+            
+            # Check if within radius of any coordinate set
+            if closest_distance > closest_coord['radius']:
                 return jsonify({
                     'success': False,
-                    'error': f'You are too far from {matched_location} ({round(distance, 1)}m away, max {allowed["radius"]}m allowed)'
+                    'error': f'You are too far from {matched_location} ({round(closest_distance, 1)}m away, max {closest_coord["radius"]}m allowed)'
                 }), 403
 
         data['location'] = location

@@ -3,6 +3,10 @@ runtime: python39
 env_variables:
   LOCAL_MODE: "False"
   SPREADSHEET_ID: ""
+  GOOGLE_TOKEN_JSON: ""
+  GOOGLE_CLIENT_SECRET: ""
+  GOOGLE_CLIENT_ID: ""
+  ADMIN_PASSPHRASE: ""
 
 automatic_scaling:
   min_instances: 0
