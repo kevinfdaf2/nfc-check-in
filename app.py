@@ -317,7 +317,7 @@ def append_to_sheet(data):
 
 
 def check_already_checked_in_today(device_id):
-    """Check if device has already checked in today"""
+    """Check if device has checked in within the last 2 hours"""
     creds = get_google_credentials()
     if not creds:
         return False
@@ -335,9 +335,9 @@ def check_already_checked_in_today(device_id):
         if not values or len(values) < 2:  # No data or only header
             return False
 
-        # Get today's date in Melbourne timezone
+        # Get current time in Melbourne timezone
         melbourne_tz = pytz.timezone('Australia/Melbourne')
-        today = datetime.now(melbourne_tz).date()
+        now = datetime.now(melbourne_tz)
 
         # Check recent check-ins (reverse order to check most recent first)
         for row in reversed(values[1:]):  # Skip header
@@ -350,13 +350,17 @@ def check_already_checked_in_today(device_id):
                     try:
                         # Parse Melbourne time format: DD/MM/YYYY, HH:MM
                         checkin_time = datetime.strptime(timestamp_str, '%d/%m/%Y, %H:%M')
-                        checkin_date = checkin_time.date()
+                        # Make it timezone-aware
+                        checkin_time = melbourne_tz.localize(checkin_time)
                         
-                        # If check-in is from today, return True
-                        if checkin_date == today:
+                        # Calculate time difference in hours
+                        time_diff = (now - checkin_time).total_seconds() / 3600
+                        
+                        # If check-in is within last 2 hours, return True
+                        if time_diff < 2:
                             return True
                         else:
-                            # If we found an older check-in, no need to keep searching
+                            # If we found an older check-in (>2 hours), no need to keep searching
                             return False
                     except Exception as e:
                         print(f"Error parsing timestamp '{timestamp_str}': {e}")
@@ -463,12 +467,12 @@ def api_checkin():
             if field not in data:
                 return jsonify({'success': False, 'error': f'Missing field: {field}'}), 400
 
-        # Check if already checked in today
+        # Check if already checked in within last 2 hours
         if check_already_checked_in_today(data['device_id']):
             return jsonify({
                 'success': False,
                 'already_checked_in': True,
-                'message': f"✅ Already checked in today!"
+                'message': f"⏰ You've already checked in within the last 2 hours!"
             }), 200
 
         # Validate location - reject if empty or 'Unknown Location'

@@ -65,7 +65,7 @@ function init() {
   camera.position.x = -300;
   camera.position.z = 300;
   camera.position.y = 50;
-  
+
   renderer = new THREE.WebGLRenderer({
     alpha: true,
     antialias: true
@@ -448,7 +448,7 @@ Dragon.prototype.prepareToSneeze = function(s) {
     x: s * .18,
     ease: Back.easeOut
   });
-  
+
   TweenLite.to(this.smile.position, speed/2, {
     z:75,
     y:10,
@@ -458,7 +458,7 @@ Dragon.prototype.prepareToSneeze = function(s) {
     x:0.01, y:0.01,
     ease: Back.easeOut
   });
-  
+
   TweenMax.to(this.noseL.scale, speed, {
     x: 1 + s * .1,
     y: 1 + s * .1,
